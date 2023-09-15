@@ -1,6 +1,6 @@
 Input File:
 Ds: 1
-Df: 1
+Df: 100
 MeshAmpX: 1
 MeshAmpY: 1
 InputName: 00000.jpg

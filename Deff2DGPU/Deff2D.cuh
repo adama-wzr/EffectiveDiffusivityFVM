@@ -72,7 +72,7 @@ typedef struct{
 
 typedef std::pair<int, int> coordPair;
 
-// define pair <double, pair<i,j>> for open list
+// define pair <float, pair<i,j>> for open list
 
 typedef std::pair<float, std::pair<int,int> > OpenListInfo;
 
@@ -240,7 +240,7 @@ int readImage(options opts, simulationInfo* myImg){
 }
 
 
-double calcPorosity(unsigned char* imageAddress, int Width, int Height){
+float calcPorosity(unsigned char* imageAddress, int Width, int Height){
 	/*
 		calcPorosity
 		Inputs:
@@ -249,13 +249,13 @@ double calcPorosity(unsigned char* imageAddress, int Width, int Height){
 			- Height: original height from std_image
 
 		Output:
-			- porosity: double containing porosity.
+			- porosity: float containing porosity.
 
 		Function calculates porosity by counting pixels.
 	*/
 
-	double totalCells = (double)Height*Width;
-	double porosity = 0;
+	float totalCells = (float)Height*Width;
+	float porosity = 0;
 	for(int i = 0; i<Height; i++){
 		for(int j = 0; j<Width; j++){
 			if(imageAddress[i*Width + j] < 150){
@@ -508,6 +508,111 @@ int aStarMain(unsigned int* GRID, domainInfo info){
 
 }
 
+float WeightedHarmonicMean(float w1, float w2, float x1, float x2){
+	/*
+		WeightedHarmonicMean Function:
+		Inputs:
+			-w1: weight of the first number
+			-w2: weight of the second number
+			-x1: first number to be averaged
+			-x2: second number to be averaged
+		Output:
+			- returns H, the weighted harmonic mean between x1 and x2, using weights w1 and w2.
+	*/
+	float H = (w1 + w2)/(w1/x1 + w2/x2);
+	return H;
+}
+
+int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts){
+	/*
+		DiscretizeMatrix2D
+
+		Inputs:
+			- pointer to float array D, where local diffusion coefficients are stored
+			- pointer to empty coefficient matrix
+			- pointer to RHS of the system of equations
+			- datastructure containing mesh information
+			- datastructure with the user-entered options
+		Output:
+			- None
+
+			Function creates the CoeffMatrix and RHS of the system of equations and stores them
+			on the appropriate memory spaces.
+	*/
+
+	int index;
+	float dxw, dxe, dys, dyn;
+	float kw, ke, ks, kn;
+
+	float dx, dy;
+	dx = mesh.dx;
+	dy = mesh.dy;
+
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
+			// initialize everything to zeroes
+			index = (i*mesh.numCellsX + j); 
+			b[index] = 0;
+			for(int k = 0; k<5; k++){
+				A[index*5 + k] = 0;
+			}
+			// left boundary, only P and E
+			if (j == 0){
+				dxe = dx;
+				ke = WeightedHarmonicMean(dxe/2,dxe/2, D[index], D[index+1]);
+				dxw = dx/2;
+				kw = D[index];
+				A[index*5 + 2] = -ke*dy/dxe;
+				A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+				b[index] += opts.CLeft*kw*dy/dxw;
+			} else if(j == mesh.numCellsX - 1){		// Right boundary, only P and W
+				dxw = dx;
+				kw = WeightedHarmonicMean(dxw/2,dxw/2, D[index], D[index-1]);
+				dxe = dx/2;
+				ke = D[index];
+				A[index*5 + 1] = -kw*dy/dxw;
+				A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+				b[index] += opts.CRight*ke*dy/dxe;
+			} else{								// P, W, and E
+				dxw = dx;
+				kw = WeightedHarmonicMean(dxw/2,dxw/2, D[index], D[index-1]);
+				dxe = dx;
+				ke = WeightedHarmonicMean(dxe/2,dxe/2, D[index], D[index+1]);
+				A[index*5 + 1] = -kw*dy/dxw;
+				A[index*5 + 2] = -ke*dy/dxe;
+				A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+			}
+			// top boundary, only S and P
+			if (i == 0){
+				dyn = dy/2;
+				kn = D[index];
+				dys = dy;
+				ks = WeightedHarmonicMean(dys/2, dys/2, D[index + mesh.numCellsX], D[index]);
+				A[index*5 + 3] = -ks*dx/dys;
+				A[index*5 + 0] += (ks*dx/dys);
+			}else if(i == mesh.numCellsY - 1){
+				dyn = dy;
+				kn = WeightedHarmonicMean(dyn/2, dyn/2, D[index], D[index - mesh.numCellsX]);
+				dys = dy/2;
+				ks = D[index];
+				A[index*5 + 4] = -kn*dx/dyn;
+				A[index*5 + 0] += kn*dx/dyn;
+			} else{
+				dyn = dy;
+				kn = WeightedHarmonicMean(dyn/2, dyn/2, D[index], D[index - mesh.numCellsX]);
+				dys = dy;
+				ks = WeightedHarmonicMean(dys/2, dys/2, D[index + mesh.numCellsX], D[index]);
+				A[index*5 + 3] = -ks*dx/dys;
+				A[index*5 + 4] = -kn*dx/dyn;
+				A[index*5 + 0] += (kn*dx/dyn + ks*dx/dys);
+			}
+		}
+	}
+
+	return 0;
+
+}
+
 int SingleSim(options opts){
 	/*
 		Function to read a single image and simulate the effective diffusivity. Results
@@ -555,6 +660,8 @@ int SingleSim(options opts){
 	mesh.numCellsX = myImg.Width*opts.MeshIncreaseX;
 	mesh.numCellsY = myImg.Height*opts.MeshIncreaseY;
 	mesh.nElements = mesh.numCellsX*mesh.numCellsY;
+	mesh.dx = 1.0/mesh.numCellsX;
+	mesh.dy = 1.0/mesh.numCellsY;
 
 	// Use pathfinding algorithm
 
@@ -588,7 +695,60 @@ int SingleSim(options opts){
 
 	// For this algorithm we continue whether there was a path or not
 
-	// Now use the information gathered 
+	// Diffusion coefficients
+
+	float DCF_Max = opts.DCfluid;
+	float DCF = 10.0f;
+	float DCS = opts.DCsolid;
+
+	// We will use an artificial scaling of the diffusion coefficient to converge to the correct solution
+
+	// Declare useful arrays
+	float *D = (float*)malloc(sizeof(float)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+	float *MFL = (float*)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the left boundary
+	float *MFR = (float*)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the right boundary
+
+	float *CoeffMatrix = (float *)malloc(sizeof(float)*mesh.nElements*5);					// array will be used to store our coefficient matrix
+	float *RHS = (float *)malloc(sizeof(float)*mesh.nElements);										// array used to store RHS of the system of equations
+	float *ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+
+	// Initialize the concentration map with a linear gradient between the two boundaries
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
+			ConcentrationDist[i*mesh.numCellsX + j] = (float)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+		}
+	}
+
+	while(DCF < DCF_Max){
+		// Populate arrays wiht zeroes
+		memset(MFL, 0, sizeof(MFL));
+		memset(MFR, 0, sizeof(MFR));
+		memset(CoeffMatrix, 0, sizeof(CoeffMatrix));
+		memset(RHS, 0, sizeof(RHS));
+		// Populate D according to DCF, DCS, and target image. Mesh amplification is employed at this step
+		// 			on converting the actual 2D image into a simulation domain.
+		for(int i = 0; i<mesh.numCellsY; i++){
+			MFL[i] = 0;
+			MFR[i] = 0;
+			for(int j = 0; j<mesh.numCellsX; j++){
+				int targetIndexRow = i/opts.MeshIncreaseY;
+				int targetIndexCol = j/opts.MeshIncreaseX;
+				if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 150){
+					D[i*mesh.numCellsX + j] = DCF;
+				} else{
+					D[i*mesh.numCellsX + j] = DCS;
+				}
+			}
+		}
+
+		// Now that we have all pieces, generate the coefficient matrix
+
+		DiscretizeMatrix2D(D, CoeffMatrix, RHS, mesh, opts);
+
+		// Initialize GPU arrays
+
+		DCF = DCF_Max;
+	}
 
 
 
