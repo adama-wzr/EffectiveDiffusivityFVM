@@ -9,6 +9,9 @@
 #include "stb_image.h"
 #include <stdbool.h>
 #include <fstream>
+#include <cfloat>
+#include <set>
+
 
 typedef struct{
   float DCsolid;					// diffusion coefficient of trace species in solid phase
@@ -36,7 +39,42 @@ typedef struct{
 	float porosity;
 	unsigned char *target_data;
 	float keff;
+	bool PathFlag;
 }simulationInfo;
+
+
+typedef struct{
+	int numCellsX;
+	int numCellsY;
+	int nElements;
+	float dx;
+	float dy;
+}meshInfo;
+
+//Data structures for a* algorithm:
+
+// generate structure to store global information about the domain
+
+typedef struct{
+	unsigned int xSize;
+	unsigned int ySize;
+	bool verbose;
+}domainInfo;
+
+// node struct will hold information on cell parent cells, f, g, and h.
+
+typedef struct{
+	int parentRow, parentCol;
+	float f,g,h;
+}node;
+
+// define pair for coords
+
+typedef std::pair<int, int> coordPair;
+
+// define pair <double, pair<i,j>> for open list
+
+typedef std::pair<float, std::pair<int,int> > OpenListInfo;
 
 
 int printOptions(options* opts){
@@ -229,6 +267,247 @@ double calcPorosity(unsigned char* imageAddress, int Width, int Height){
 	return porosity;
 }
 
+int aStarMain(unsigned int* GRID, domainInfo info){
+	/*
+		aStarMain Function
+		Inputs:
+			- unsigned int GRID: grid, at each location either a 1 or a 0.
+				1 means solid, 0 void. Those are the boundary conditions.
+			- domainInfo info: data structure with info regarding height and width of the domain
+		Output:
+			- either a one or a zero. One means there is a path, zero means there isn't.
+	*/
+
+	// Initialize both lists, open and closed as arrays
+
+	bool* closedList = (bool *)malloc(sizeof(bool)*info.xSize*info.ySize);
+
+	memset(closedList, false, sizeof(closedList));
+
+	// Declare 2D array of structure type "node"
+	// Node contains information such as parent coordinates, g, h, and f
+
+	node nodeInfo[info.ySize][info.ySize];
+
+	// Initialize all paremeters
+
+	for(int i = 0; i<info.ySize; i++){
+		for(int j = 0; j<info.xSize; j++){
+			nodeInfo[i][j].f = FLT_MAX;
+			nodeInfo[i][j].g = FLT_MAX;
+			nodeInfo[i][j].h = FLT_MAX;
+			nodeInfo[i][j].parentCol = -1;
+			nodeInfo[i][j].parentRow = -1;
+		}
+	}
+
+	// Initialize parameters for all starting nodes
+
+	for(int i = 0; i<info.ySize; i++){
+		if(GRID[i*info.xSize + 0] == 0){
+			nodeInfo[i][0].f = 0.0;
+			nodeInfo[i][0].g = 0.0;
+			nodeInfo[i][0].h = 0.0;
+			nodeInfo[i][0].parentCol = 0;
+			nodeInfo[i][0].parentRow = i;
+		}
+	}
+
+	// Create open list
+
+	std::set<OpenListInfo> openList;
+
+	// Insert all starting nodes into the open list
+
+	for(int i = 0; i<info.ySize; i++){
+		openList.insert(std::make_pair(0.0, std::make_pair(i,0)));
+	}
+
+	// set destination flag to false
+
+	bool foundDest = false;
+
+	// begin loop to find path. If openList is empty, terminate the loop
+
+	while(!openList.empty()){
+		// First step is to pop the fist entry on the list
+		OpenListInfo pop = *openList.begin();
+
+		// remove from open list
+		openList.erase(openList.begin());
+
+		// Add to the closed list
+		int row = pop.second.first; // first argument of the second pair
+		int col = pop.second.second; // second argument of second pair
+		closedList[row*info.xSize + col] = true;
+
+		/*
+			Now we need to generate all 4 successors from the popped cell.
+			The successors are north, south, east, and west.
+			
+			North index = i - 1, j
+			South index = i + 1, j
+			East index =  i    , j + 1
+			West index =  i    , j - 1
+		*/
+		float gNew, hNew, fNew;
+
+		// Evaluate North
+		
+		int tempCol = col;
+		int tempRow = row;
+
+		// adjust North for periodic boundary condition
+
+		if(row == 0){
+			tempRow = info.ySize - 1;
+		} else{
+			tempRow = row - 1;
+		}
+
+		// check if we reached destination, which is the entire right boundary
+		if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
+			nodeInfo[tempRow][tempCol].parentRow = row;
+			nodeInfo[tempRow][tempCol].parentCol = col;
+			if(info.verbose == true){
+				printf("Path found.\n");
+			}
+			// Found dest, update flag and terminate
+			foundDest = true;
+			return foundDest;
+		} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
+		{
+			gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
+			hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
+			fNew = gNew + hNew;					// total cost is just h+g
+			// Check if on open list. If yes, update f,g, and h accordingly.
+			// If not, add it to open list.
+			if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
+				openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
+				nodeInfo[tempRow][tempCol].f = fNew;
+				nodeInfo[tempRow][tempCol].g = gNew;
+				nodeInfo[tempRow][tempCol].h = hNew;
+				nodeInfo[tempRow][tempCol].parentRow = row;
+				nodeInfo[tempRow][tempCol].parentCol = col;
+			}
+		}
+			
+
+		// Evaluate South
+
+		tempCol = col;
+		tempRow = row;
+
+		// Adjust for periodic BC
+
+		if(row == info.ySize - 1){
+			tempRow = 0;
+		} else{
+			tempRow = row + 1;
+		}
+
+		// check if we reached destination, which is the entire right boundary
+		if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
+			nodeInfo[tempRow][tempCol].parentRow = row;
+			nodeInfo[tempRow][tempCol].parentCol = col;
+			if(info.verbose == true){
+				printf("Path found.\n");
+			}
+			// Found dest, update flag and terminate
+			foundDest = true;
+			return foundDest;
+		} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
+		{
+			gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
+			hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
+			fNew = gNew + hNew;					// total cost is just h+g
+			// Check if on open list. If yes, update f,g, and h accordingly.
+			// If not, add it to open list.
+			if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
+				openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
+				nodeInfo[tempRow][tempCol].f = fNew;
+				nodeInfo[tempRow][tempCol].g = gNew;
+				nodeInfo[tempRow][tempCol].h = hNew;
+				nodeInfo[tempRow][tempCol].parentRow = row;
+				nodeInfo[tempRow][tempCol].parentCol = col;
+			}
+		}
+
+		// Evaluate East (if it exists)
+
+		if(col != info.xSize - 1){
+			tempRow = row;
+			tempCol = col + 1;
+
+			// check if we reached destination, which is the entire right boundary
+			if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
+				nodeInfo[tempRow][tempCol].parentRow = row;
+				nodeInfo[tempRow][tempCol].parentCol = col;
+				if(info.verbose == true){
+					printf("Path found.\n");
+				}
+				// Found dest, update flag and terminate
+				foundDest = true;
+				return foundDest;
+			} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
+			{
+				gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
+				hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
+				fNew = gNew + hNew;					// total cost is just h+g
+				// Check if on open list. If yes, update f,g, and h accordingly.
+				// If not, add it to open list.
+				if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
+					openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
+					nodeInfo[tempRow][tempCol].f = fNew;
+					nodeInfo[tempRow][tempCol].g = gNew;
+					nodeInfo[tempRow][tempCol].h = hNew;
+					nodeInfo[tempRow][tempCol].parentRow = row;
+					nodeInfo[tempRow][tempCol].parentCol = col;
+				}
+			}
+		}
+
+		// Evaluate West
+
+		if(col != 0){
+			tempRow = row;
+			tempCol = col;
+
+			// check if we reached destination, which is the entire right boundary
+			if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
+				nodeInfo[tempRow][tempCol].parentRow = row;
+				nodeInfo[tempRow][tempCol].parentCol = col;
+				if(info.verbose == true){
+					printf("Path found.\n");
+				}
+				// Found dest, update flag and terminate
+				foundDest = true;
+				return foundDest;
+			} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
+			{
+				gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
+				hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
+				fNew = gNew + hNew;					// total cost is just h+g
+				// Check if on open list. If yes, update f,g, and h accordingly.
+				// If not, add it to open list.
+				if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
+					openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
+					nodeInfo[tempRow][tempCol].f = fNew;
+					nodeInfo[tempRow][tempCol].g = gNew;
+					nodeInfo[tempRow][tempCol].h = hNew;
+					nodeInfo[tempRow][tempCol].parentRow = row;
+					nodeInfo[tempRow][tempCol].parentCol = col;
+				}
+			}
+		}
+	}
+	if(info.verbose == true){
+		printf("Failed to find a path.\n");
+	}
+	return foundDest;
+
+}
+
 int SingleSim(options opts){
 	/*
 		Function to read a single image and simulate the effective diffusivity. Results
@@ -240,14 +519,22 @@ int SingleSim(options opts){
 			none
 	*/
 
+	// Define data structures
+
 	simulationInfo myImg;
+
+	meshInfo mesh;
+
+	// first step is to read the image properly and calculate the porosity
 
 	readImage(opts, &myImg);
 
 	myImg.porosity = calcPorosity(myImg.target_data, myImg.Width, myImg.Height);
 
+	// right now the program only deals with grayscale binary images, so we need to make sure to return that to the user
+
 	if(opts.verbose == 1){
-		std::cout << "width = " << myImg.Width << " height = " << myImg.Height << " channel = " << myImg.nChannels << std::endl;
+		std::cout << "Width = " << myImg.Width << " Height = " << myImg.Height << " Channel = " << myImg.nChannels << std::endl;
 		std::cout << "Porosity = " << myImg.porosity << std::endl;
 	}
 
@@ -255,6 +542,56 @@ int SingleSim(options opts){
 		printf("Error: please enter a grascale image with 1 channel.\n Current number of channels = %d\n", myImg.nChannels);
 		return 1;
 	}
+
+	// Sort out the current mesh
+
+	if(opts.MeshIncreaseX < 1 || opts.MeshIncreaseY < 1){						// Return error if mesh refinement is smaller than 1
+		printf("MeshIncrease has to be an integer greater than 1.\n");
+		return 1;
+	}
+
+	// Define number of cells in each direction
+
+	mesh.numCellsX = myImg.Width*opts.MeshIncreaseX;
+	mesh.numCellsY = myImg.Height*opts.MeshIncreaseY;
+	mesh.nElements = mesh.numCellsX*mesh.numCellsY;
+
+	// Use pathfinding algorithm
+
+	myImg.PathFlag = false;
+
+	domainInfo info;
+
+	info.xSize = myImg.Width;
+	info.ySize = myImg.Height;
+	info.verbose = opts.verbose;
+
+	// Declare search boundaries for the domain
+
+	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*info.xSize*info.ySize);
+
+	for(int i = 0; i<info.ySize; i++){
+		for(int j = 0; j<info.xSize; j++){
+			if(myImg.target_data[i*myImg.Width + j] > 150){
+				Grid[i*myImg.Width + j] = 1;
+			} else{
+				Grid[i*myImg.Width + j] = 0;
+			}
+		}
+	}
+
+	// Search path
+
+	myImg.PathFlag = aStarMain(Grid, info);
+
+	free(Grid);
+
+	// For this algorithm we continue whether there was a path or not
+
+	// Now use the information gathered 
+
+
+
 
 	return 0;
 }
