@@ -1,0 +1,16 @@
+Input File:
+Ds: 1
+Df: 1
+MeshAmpX: 1
+MeshAmpY: 1
+InputName: 00000.jpg
+CR: 1
+CL: 0
+OutputName: batchTest.csv
+printCMap: 0
+CMapName: CMAP_00001.csv
+Convergence: 0.00001
+MaxIter: 500000
+Verbose: 1
+RunBatch: 1
+NumImages: 500
