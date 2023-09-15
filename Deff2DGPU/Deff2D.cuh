@@ -29,7 +29,20 @@ typedef struct{
 }options;
 
 
+typedef struct{
+	int Width;
+	int Height;
+	int nChannels;
+	float porosity;
+	unsigned char *target_data;
+	float keff;
+}simulationInfo;
+
+
 int printOptions(options* opts){
+	/*
+		Function prints the selected user options if verbose = true
+	*/
 	if(opts->BatchFlag == 0){
 		printf("--------------------------------------\n\n");
 		printf("Current selected options:\n\n");
@@ -164,5 +177,84 @@ int readInputFile(char* FileName, options* opts){
 	} else if(opts->verbose != 0){
 		printf("Please enter a value of 0 or 1 for 'verbose'. Default = 0.\n");
 	}
+	return 0;
+}
+
+
+int readImage(options opts, simulationInfo* myImg){
+	/*
+		readImage Function:
+		Inputs:
+			- imageAddress: unsigned char reference to the pointer in which the image will be read to.
+			- Width: pointer to variable to store image width
+			- Height: pointer to variable to store image height
+			- NumofChannels: pointer to variable to store number of channels in the image.
+					-> NumofChannels has to be 1, otherwise code is terminated. Please enter grayscale
+						images with NumofChannels = 1.
+		Outputs: None
+
+		Function reads the image into the pointer to the array to store it.
+	*/
+
+	myImg->target_data = stbi_load(opts.inputFilename, &myImg->Width, &myImg->Height, &myImg->nChannels, 1);
+
+	return 0;
+}
+
+
+double calcPorosity(unsigned char* imageAddress, int Width, int Height){
+	/*
+		calcPorosity
+		Inputs:
+			- imageAddress: pointer to the read image.
+			- Width: original width from std_image
+			- Height: original height from std_image
+
+		Output:
+			- porosity: double containing porosity.
+
+		Function calculates porosity by counting pixels.
+	*/
+
+	double totalCells = (double)Height*Width;
+	double porosity = 0;
+	for(int i = 0; i<Height; i++){
+		for(int j = 0; j<Width; j++){
+			if(imageAddress[i*Width + j] < 150){
+				porosity += 1.0/totalCells;
+			}
+		}
+	}
+
+	return porosity;
+}
+
+int SingleSim(options opts){
+	/*
+		Function to read a single image and simulate the effective diffusivity. Results
+		 are stored on the output file
+
+		Inputs:
+			Datastructure with user-defined simulation options
+		Outputs:
+			none
+	*/
+
+	simulationInfo myImg;
+
+	readImage(opts, &myImg);
+
+	myImg.porosity = calcPorosity(myImg.target_data, myImg.Width, myImg.Height);
+
+	if(opts.verbose == 1){
+		std::cout << "width = " << myImg.Width << " height = " << myImg.Height << " channel = " << myImg.nChannels << std::endl;
+		std::cout << "Porosity = " << myImg.porosity << std::endl;
+	}
+
+	if (myImg.nChannels != 1){
+		printf("Error: please enter a grascale image with 1 channel.\n Current number of channels = %d\n", myImg.nChannels);
+		return 1;
+	}
+
 	return 0;
 }

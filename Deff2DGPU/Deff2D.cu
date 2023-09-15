@@ -2,17 +2,21 @@
 
 int main(void){
 
+	// Important call for efficiency on Linux
 	fflush(stdout);
 
-	//
+	//	Declare data structure
 	options opts;
-	// user input number of threads and default
 
 	char inputFilename[30];
 
 	sprintf(inputFilename, "input.txt");
 
 	readInputFile(inputFilename, &opts);
+
+	if(opts.BatchFlag == 0){
+		SingleSim(opts);
+	}
 
 	return 0;
 

@@ -12,5 +12,5 @@ CMapName: CMAP_00001.csv
 Convergence: 0.00001
 MaxIter: 500000
 Verbose: 1
-RunBatch: 1
+RunBatch: 0
 NumImages: 500
