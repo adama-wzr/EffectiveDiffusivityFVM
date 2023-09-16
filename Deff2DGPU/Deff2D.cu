@@ -16,6 +16,10 @@ int main(void){
 
 	if(opts.BatchFlag == 0){
 		SingleSim(opts);
+	} else if(opts.BatchFlag == 1){
+		BatchSim(opts);
+	} else{
+		std::cout << "Error: no valid BatchFlag option, check input file." << std::endl;
 	}
 
 	return 0;

@@ -1083,9 +1083,22 @@ int SingleSim(options opts){
 		count++;
 	}
 
-	// create output file and 
+	// create output file 
 
 	outputSingle(opts, mesh, myImg);
+
+	// Free everything
+
+	unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+	free(MFL);
+	free(MFR);
+	free(CoeffMatrix);
+	free(RHS);
+	free(ConcentrationDist);
+	free(temp_ConcentrationDist);
+	free(D);
+
+
 
 	return 0;
 }
