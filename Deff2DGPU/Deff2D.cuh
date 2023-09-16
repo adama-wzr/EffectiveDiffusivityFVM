@@ -156,7 +156,30 @@ int printOptions(options* opts){
 	return 0;
 }
 
+int outputSingle(options opts, meshInfo mesh, simulationInfo myImg){
+	FILE *OUTPUT;
+	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
+  OUTPUT = fopen(opts.outputFilename, "a+");
+  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+  fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f,%f,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime/1000, mesh.nElements, myImg.conv,
+  	opts.DCsolid, opts.DCfluid);
+  fclose(OUTPUT);
+  return 0;
+}
+
+int outputBatch(options opts, float* output){
+	FILE *OUTPUT;
+
+  OUTPUT = fopen(opts.outputFilename, "a+");
+  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+  for(int i = 0; i<opts.NumImg; i++){
+  	fprintf(OUTPUT, "%d,%f,%d,%f,%f,%d,%f,%f,%f\n", i, output[i*9 + 1], (int)output[i*9 + 2], output[i*9 + 3], output[i*9 + 4], (int)output[i*9 + 5], output[i*9 + 6],
+			output[i*9 + 7], output[i*9 + 8]);
+  }
+  fclose(OUTPUT);
+  return 0;
+}
 
 int readInputFile(char* FileName, options* opts){
 
@@ -262,6 +285,27 @@ int readImage(options opts, simulationInfo* myImg){
 	*/
 
 	myImg->target_data = stbi_load(opts.inputFilename, &myImg->Width, &myImg->Height, &myImg->nChannels, 1);
+
+	return 0;
+}
+
+
+int readImageBatch(options opts, simulationInfo* myImg, char* filename){
+	/*
+		readImage Function:
+		Inputs:
+			- imageAddress: unsigned char reference to the pointer in which the image will be read to.
+			- Width: pointer to variable to store image width
+			- Height: pointer to variable to store image height
+			- NumofChannels: pointer to variable to store number of channels in the image.
+					-> NumofChannels has to be 1, otherwise code is terminated. Please enter grayscale
+						images with NumofChannels = 1.
+		Outputs: None
+
+		Function reads the image into the pointer to the array to store it.
+	*/
+
+	myImg->target_data = stbi_load(filename, &myImg->Width, &myImg->Height, &myImg->nChannels, 1);
 
 	return 0;
 }
@@ -887,16 +931,6 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 	return iterCount;
 }
 
-int outputSingle(options opts, meshInfo mesh, simulationInfo myImg){
-	FILE *OUTPUT;
-
-  OUTPUT = fopen(opts.outputFilename, "a+");
-  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge\n");
-  fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime/1000, mesh.nElements, myImg.conv);
-  fclose(OUTPUT);
-  return 0;
-}
-
 int SingleSim(options opts){
 	/*
 		Function to read a single image and simulate the effective diffusivity. Results
@@ -1098,7 +1132,242 @@ int SingleSim(options opts){
 	free(temp_ConcentrationDist);
 	free(D);
 
+	return 0;
+}
 
+int BatchSim(options opts){
+	/*
+		Function to read a batch of images and simulate the effective diffusivity. Results
+		 are stored on the output file.
+
+		Inputs:
+			Datastructure with user-defined simulation options
+		Outputs:
+			none
+	*/
+
+	// Start from image 0
+
+	int imageNum = 0;
+
+	// array to store image name
+
+	char imageName[100];
+
+	// Create array to store all outputs
+	// In order: imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
+
+	float *output = (float *)malloc(sizeof(float)*opts.NumImg*9);
+
+	while(imageNum < opts.NumImg){
+		// Define data structures
+
+		simulationInfo myImg;
+
+		meshInfo mesh;
+
+		// Image name
+
+		sprintf(imageName,"%05d.jpg",imageNum);
+
+		// Read image
+
+		readImageBatch(opts, &myImg, imageName);
+
+		// Calculate porosity
+
+		myImg.porosity = calcPorosity(myImg.target_data, myImg.Width, myImg.Height);
+
+		// right now the program only deals with grayscale binary images, so we need to make sure to return that to the user
+
+		if(opts.verbose == 1){
+			std::cout << "Width = " << myImg.Width << " Height = " << myImg.Height << " Channel = " << myImg.nChannels << std::endl;
+			std::cout << "Porosity = " << myImg.porosity << std::endl;
+		}
+
+		if (myImg.nChannels != 1){
+			printf("Error: please enter a grascale image with 1 channel.\n Current number of channels = %d\n", myImg.nChannels);
+			return 1;
+		}
+
+		// Sort out the current mesh
+
+		if(opts.MeshIncreaseX < 1 || opts.MeshIncreaseY < 1){						// Return error if mesh refinement is smaller than 1
+			printf("MeshIncrease has to be an integer greater than 1.\n");
+			return 1;
+		}
+
+		// Define number of cells in each direction
+
+		mesh.numCellsX = myImg.Width*opts.MeshIncreaseX;
+		mesh.numCellsY = myImg.Height*opts.MeshIncreaseY;
+		mesh.nElements = mesh.numCellsX*mesh.numCellsY;
+		mesh.dx = 1.0/mesh.numCellsX;
+		mesh.dy = 1.0/mesh.numCellsY;
+
+		// Use pathfinding algorithm
+
+		myImg.PathFlag = false;
+
+		domainInfo info;
+
+		info.xSize = myImg.Width;
+		info.ySize = myImg.Height;
+		info.verbose = opts.verbose;
+
+		// Declare search boundaries for the domain
+
+		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*info.xSize*info.ySize);
+
+		for(int i = 0; i<info.ySize; i++){
+			for(int j = 0; j<info.xSize; j++){
+				if(myImg.target_data[i*myImg.Width + j] > 150){
+					Grid[i*myImg.Width + j] = 1;
+				} else{
+					Grid[i*myImg.Width + j] = 0;
+				}
+			}
+		}
+
+		// Search path
+
+		myImg.PathFlag = aStarMain(Grid, info);
+
+		free(Grid);
+
+		// For this algorithm we continue whether there was a path or not
+
+		// Diffusion coefficients
+
+		float DCF_Max = opts.DCfluid;
+		float DCF = 10.0f;
+		float DCS = opts.DCsolid;
+
+		// We will use an artificial scaling of the diffusion coefficient to converge to the correct solution
+
+		// Declare useful arrays
+		float *D = (float *)malloc(sizeof(float)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+		float *MFL = (float *)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the left boundary
+		float *MFR = (float *)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the right boundary
+
+		float *CoeffMatrix = (float *)malloc(sizeof(float)*mesh.nElements*5);					// array will be used to store our coefficient matrix
+		float *RHS = (float *)malloc(sizeof(float)*mesh.nElements);										// array used to store RHS of the system of equations
+		float *ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+		float *temp_ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+
+		// Initialize the concentration map with a linear gradient between the two boundaries
+		for(int i = 0; i<mesh.numCellsY; i++){
+			for(int j = 0; j<mesh.numCellsX; j++){
+				ConcentrationDist[i*mesh.numCellsX + j] = (float)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+			}
+		}
+
+		// Zero the time
+
+		myImg.gpuTime = 0;
+
+		// Declare GPU arrays
+
+		float *d_x_vec = NULL;
+		float *d_temp_x_vec = NULL;
+		
+		float *d_Coeff = NULL;
+		float *d_RHS = NULL;
+
+		// Initialize the GPU arrays
+
+		if(!initializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff, mesh))
+		{
+			printf("\n Error when allocating space in GPU");
+			unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+			return 0;
+		}
+
+		// determine DCF scaling approach
+
+		int count = 1;
+
+		while(DCF <= DCF_Max){
+			DCF = std::pow(100,count);
+			if(DCF >= DCF_Max){
+				DCF = DCF_Max;
+			}
+			// Populate arrays wiht zeroes
+			memset(MFL, 0, sizeof(MFL));
+			memset(MFR, 0, sizeof(MFR));
+			memset(CoeffMatrix, 0, sizeof(CoeffMatrix));
+			memset(RHS, 0, sizeof(RHS));
+			// Populate D according to DCF, DCS, and target image. Mesh amplification is employed at this step
+			// 			on converting the actual 2D image into a simulation domain.
+			for(int i = 0; i<mesh.numCellsY; i++){
+				MFL[i] = 0;
+				MFR[i] = 0;
+				for(int j = 0; j<mesh.numCellsX; j++){
+					int targetIndexRow = i/opts.MeshIncreaseY;
+					int targetIndexCol = j/opts.MeshIncreaseX;
+					if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 150){
+						D[i*mesh.numCellsX + j] = DCF;
+					} else{
+						D[i*mesh.numCellsX + j] = DCS;
+					}
+				}
+			}
+
+			// Now that we have all pieces, generate the coefficient matrix
+
+			DiscretizeMatrix2D(D, CoeffMatrix, RHS, mesh, opts);
+
+			// Solve with GPU
+			int iter_taken = 0;
+			iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
+				d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+			// non-dimensional and normalized Deff
+
+			myImg.deff = myImg.deff/DCF;
+
+			// update DCF
+
+			if(DCF == DCF_Max){
+				break;
+			}
+
+			count++;
+		}
+
+		if(opts.verbose == 1){
+			std::cout << "Number" << imageNum << "DCF = " << DCF << ", Deff " << myImg.deff << std::endl;
+		}
+
+		// save output
+		// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
+
+		output[imageNum*9 + 0] = (float) imageNum;
+		output[imageNum*9 + 1] = myImg.porosity;
+		output[imageNum*9 + 2] = (float) myImg.PathFlag;
+		output[imageNum*9 + 3] = myImg.deff;
+		output[imageNum*9 + 4] = myImg.gpuTime/1000;
+		output[imageNum*9 + 5] = mesh.nElements;
+		output[imageNum*9 + 6] = myImg.conv;
+		output[imageNum*9 + 7] = opts.DCsolid;
+		output[imageNum*9 + 8] = DCF_Max;
+
+		// Free everything
+
+		unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+		free(MFL);
+		free(MFR);
+		free(CoeffMatrix);
+		free(RHS);
+		free(ConcentrationDist);
+		free(temp_ConcentrationDist);
+		free(D);
+
+		imageNum++;
+
+	}
+
+	outputBatch(opts, output);
 
 	return 0;
 }
