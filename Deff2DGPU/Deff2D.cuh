@@ -41,6 +41,7 @@ typedef struct{
 	unsigned char *target_data;
 	float deff;
 	bool PathFlag;
+	float conv;
 }simulationInfo;
 
 
@@ -636,7 +637,6 @@ int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts
 	}
 
 	return 0;
-
 }
 
 int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **d_Coeff, meshInfo mesh){
@@ -759,7 +759,7 @@ void unInitializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float
 }
 
 int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options opts,
-	float *d_x_vec, float *d_temp_x_vec, float *d_Coeff, float *d_RHS, float *MFL, float *MFR, float *D, meshInfo mesh, simulationInfo myImg)
+	float *d_x_vec, float *d_temp_x_vec, float *d_Coeff, float *d_RHS, float *MFL, float *MFR, float *D, meshInfo mesh, simulationInfo* myImg)
 {
 
 	int iterCount = 0;
@@ -858,6 +858,7 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 			} else if(percentChange < 0.0001){
 				iterToCheck = 10;
 			}
+			myImg->conv = percentChange;
 		}
 
 		// Update iteration count
@@ -878,16 +879,22 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
 	}
 
-	myImg.deff = deffNew;
+	myImg->deff = deffNew;
 
-	if(opts.verbose == 1){
-		std::cout << "Deff = " << myImg.deff << std::endl;
-	}
-
-	myImg.gpuTime += elapsedTime;
+	myImg->gpuTime += elapsedTime;
 
 
 	return iterCount;
+}
+
+int outputSingle(options opts, meshInfo mesh, simulationInfo myImg){
+	FILE *OUTPUT;
+
+  OUTPUT = fopen(opts.outputFilename, "a+");
+  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge\n");
+  fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime/1000, mesh.nElements, myImg.conv);
+  fclose(OUTPUT);
+  return 0;
 }
 
 int SingleSim(options opts){
@@ -1018,7 +1025,15 @@ int SingleSim(options opts){
 		return 0;
 	}
 
-	while(DCF < DCF_Max){
+	// determine DCF scaling approach
+
+	int count = 1;
+
+	while(DCF <= DCF_Max){
+		DCF = std::pow(100,count);
+		if(DCF >= DCF_Max){
+			DCF = DCF_Max;
+		}
 		// Populate arrays wiht zeroes
 		memset(MFL, 0, sizeof(MFL));
 		memset(MFR, 0, sizeof(MFR));
@@ -1047,15 +1062,30 @@ int SingleSim(options opts){
 		// Solve with GPU
 		int iter_taken = 0;
 		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
-			d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, myImg);
+			d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+		// non-dimensional and normalized Deff
+
+		myImg.deff = myImg.deff/DCF;
+
+		// Print if applicable
+
+		if(opts.verbose == 1){
+			std::cout << "DCF = " << DCF << ", Deff " << myImg.deff << std::endl;
+		}
 
 		// update DCF
 
-		DCF = DCF_Max;
+		if(DCF == DCF_Max){
+			break;
+		}
+
+		count++;
 	}
 
+	// create output file and 
 
-
+	outputSingle(opts, mesh, myImg);
 
 	return 0;
 }
