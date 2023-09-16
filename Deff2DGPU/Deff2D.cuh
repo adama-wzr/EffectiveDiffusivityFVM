@@ -37,8 +37,9 @@ typedef struct{
 	int Height;
 	int nChannels;
 	float porosity;
+	float gpuTime;
 	unsigned char *target_data;
-	float keff;
+	float deff;
 	bool PathFlag;
 }simulationInfo;
 
@@ -76,6 +77,31 @@ typedef std::pair<int, int> coordPair;
 
 typedef std::pair<float, std::pair<int,int> > OpenListInfo;
 
+// GPU Jacobi-Iteration Kernel
+
+__global__ void updateX_V1(float* A, float* x, float* b, float* xNew, meshInfo mesh)
+{
+	unsigned int myRow = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (myRow < mesh.nElements){
+		float sigma = 0;
+		for(int j = 1; j<5; j++){
+			if(A[myRow*5 + j] !=0){
+				if(j == 1){
+					sigma += A[myRow*5 + j]*x[myRow - 1];
+				} else if(j == 2){
+					sigma += A[myRow*5 + j]*x[myRow + 1];
+				} else if(j == 3){
+					sigma += A[myRow*5 + j]*x[myRow + mesh.numCellsX];
+				} else if(j == 4){
+					sigma += A[myRow*5 + j]*x[myRow - mesh.numCellsX];
+				}
+			}
+		}
+		xNew[myRow] = 1/A[myRow*5 + 0] * (b[myRow] - sigma);
+	}
+		
+}
 
 int printOptions(options* opts){
 	/*
@@ -613,6 +639,257 @@ int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts
 
 }
 
+int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **d_Coeff, meshInfo mesh){
+
+	// Set device, when cudaStatus is called give status of assigned device.
+	// This is important to know if we are running out of GPU space
+	cudaError_t cudaStatus = cudaSetDevice(0);
+
+	// Start by allocating space in GPU memory
+
+	if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaSetDevice failed!  Do you have a CUDA-capable GPU installed?");
+		getchar();
+        return 0;
+    }
+
+    cudaStatus = cudaMalloc((void**)&(*d_x_vec), mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+		getchar();
+        return 0;
+    }
+
+    cudaStatus = cudaMalloc((void**)&(*d_temp_x_vec), mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+		getchar();
+        return 0;
+    }
+
+    cudaStatus = cudaMalloc((void**)&(*d_RHS), mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+		getchar();
+        return 0;
+    }
+
+    cudaStatus = cudaMalloc((void**)&(*d_Coeff), mesh.nElements*sizeof(float)*5);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMalloc failed!");
+		getchar();
+        return 0;
+    }
+
+    // Set GPU buffers (initializing matrices to 0)
+
+     // Memset GPU buffers
+    cudaStatus = cudaMemset((*d_x_vec),0, mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemset failed!");
+		getchar();
+        return 0;
+    }
+
+	// Memset GPU buffers
+    cudaStatus = cudaMemset((*d_temp_x_vec),0, mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemset failed!");
+		getchar();
+        return 0;
+    }
+
+     // Memset GPU buffers
+    cudaStatus = cudaMemset((*d_RHS),0, mesh.nElements*sizeof(float));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemset failed!");
+		getchar();
+        return 0;
+    }
+
+	// Memset GPU buffers
+    cudaStatus = cudaMemset((*d_Coeff),0, 5*mesh.nElements*sizeof(float));		// coefficient matrix has the 5 main diagonals for all elements
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaMemset failed!");
+		getchar();
+        return 0;
+    }
+
+    return 1;
+}
+
+void unInitializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **d_Coeff)
+{
+	cudaError_t cudaStatus;
+
+	if((*d_x_vec)!=NULL)
+    cudaStatus = cudaFree((*d_x_vec));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaFree failed!");
+        return;
+    }
+
+	if((*d_temp_x_vec)!=NULL)
+    cudaStatus = cudaFree((*d_temp_x_vec));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaFree failed!");
+        return;
+    }
+
+	if((*d_Coeff)!=NULL)
+    cudaStatus = cudaFree((*d_Coeff));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaFree failed!");
+        return;
+    }
+
+	if((*d_RHS)!=NULL)
+    cudaStatus = cudaFree((*d_RHS));
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaFree failed!");
+        return;
+    }    
+
+	cudaStatus = cudaDeviceReset();
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaDeviceReset failed!");
+		getchar();
+        return;
+    }
+}
+
+int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options opts,
+	float *d_x_vec, float *d_temp_x_vec, float *d_Coeff, float *d_RHS, float *MFL, float *MFR, float *D, meshInfo mesh, simulationInfo myImg)
+{
+
+	int iterCount = 0;
+	float percentChange = 1;
+	int threads_per_block = 160;
+	int numBlocks = mesh.nElements/threads_per_block + 1;
+	float deffOld = 1;
+	float deffNew = 1;
+	int iterToCheck = 1000;
+	float Q1,Q2;
+	float qAvg = 0;
+	float dx,dy;
+	int numRows = mesh.numCellsY;
+	int numCols = mesh.numCellsX;
+	const char *str = (char*) malloc(1024); // To store error string
+
+	dx = mesh.dx;
+	dy = mesh.dy;
+
+	int nRows = mesh.nElements;	// number of rows in the coefficient matrix
+	int nCols = 5;							// number of cols in the coefficient matrix
+
+	// Initialize temp_x_vec
+
+	for(int i = 0; i<nRows; i++){
+		temp_x_vec[i] = x_vec[i];
+	}
+
+	//Copy arrays into GPU memory
+
+	cudaError_t cudaStatus = cudaMemcpy(d_temp_x_vec, temp_x_vec, sizeof(float) * nRows, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "temp_x_vec cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(float)*nRows, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "d_RHS cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(float)*nRows*nCols, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "d_Coeff cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+
+	// Declare event to get time
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start, 0);
+
+	while(iterCount < opts.MAX_ITER && opts.ConvergeCriteria < percentChange)
+	{
+		// Call Kernel to Calculate new x-vector
+		
+		updateX_V1<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
+
+		// update x vector
+
+		d_temp_x_vec = d_x_vec;
+
+		// Convergence related material
+
+		if (iterCount % iterToCheck == 0){
+			cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(float) * nRows, cudaMemcpyDeviceToHost);
+			if (cudaStatus != cudaSuccess) {
+				fprintf(stderr, "x_vec cudaMemcpy failed!");
+				str = cudaGetErrorString(cudaStatus);
+				fprintf(stderr, "CUDA Error!:: %s\n", str);
+			}
+			Q1 = 0;
+			Q2 = 0;
+			for (int j = 0; j<numRows; j++){
+				MFL[j] = D[j*numRows]*dy*(x_vec[j*numCols] - opts.CLeft)/(dx/2);
+				MFR[j] = D[(j + 1)*numRows - 1]*dy*(opts.CRight - x_vec[(j+1)*numCols -1])/(dx/2);
+				// printf("T(0,%d) = %2.3f\n", j, x_vec[j*numCols]);
+				Q1 += MFL[j];
+				Q2 += MFR[j];
+			}
+			Q1 = Q1;
+			Q2 = Q2;
+			qAvg = (Q1 + Q2)/2;
+			deffNew = qAvg/((opts.CRight - opts.CLeft));
+			percentChange = fabs((deffNew - deffOld)/deffOld);
+			deffOld = deffNew;
+
+			// printf("Iteration = %d, Keff = %2.3f\n", iterCount, deffNew);
+
+			if (percentChange < 0.001){
+				iterToCheck = 100;
+			} else if(percentChange < 0.0001){
+				iterToCheck = 10;
+			}
+		}
+
+		// Update iteration count
+		iterCount++;
+	}
+
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+
+	float elapsedTime;
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+
+	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(float)*nRows, cudaMemcpyDeviceToHost);
+
+	if (cudaStatus != cudaSuccess) {
+		fprintf(stderr, "x_vec cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+
+	myImg.deff = deffNew;
+
+	if(opts.verbose == 1){
+		std::cout << "Deff = " << myImg.deff << std::endl;
+	}
+
+	myImg.gpuTime += elapsedTime;
+
+
+	return iterCount;
+}
+
 int SingleSim(options opts){
 	/*
 		Function to read a single image and simulate the effective diffusivity. Results
@@ -711,12 +988,34 @@ int SingleSim(options opts){
 	float *CoeffMatrix = (float *)malloc(sizeof(float)*mesh.nElements*5);					// array will be used to store our coefficient matrix
 	float *RHS = (float *)malloc(sizeof(float)*mesh.nElements);										// array used to store RHS of the system of equations
 	float *ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+	float *temp_ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
 
 	// Initialize the concentration map with a linear gradient between the two boundaries
 	for(int i = 0; i<mesh.numCellsY; i++){
 		for(int j = 0; j<mesh.numCellsX; j++){
 			ConcentrationDist[i*mesh.numCellsX + j] = (float)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
 		}
+	}
+
+	// Zero the time
+
+	myImg.gpuTime = 0;
+
+	// Declare GPU arrays
+
+	float *d_x_vec = NULL;
+	float *d_temp_x_vec = NULL;
+	
+	float *d_Coeff = NULL;
+	float *d_RHS = NULL;
+
+	// Initialize the GPU arrays
+
+	if(!initializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff, mesh))
+	{
+		printf("\n Error when allocating space in GPU");
+		unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+		return 0;
 	}
 
 	while(DCF < DCF_Max){
@@ -745,7 +1044,12 @@ int SingleSim(options opts){
 
 		DiscretizeMatrix2D(D, CoeffMatrix, RHS, mesh, opts);
 
-		// Initialize GPU arrays
+		// Solve with GPU
+		int iter_taken = 0;
+		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
+			d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, myImg);
+
+		// update DCF
 
 		DCF = DCF_Max;
 	}
