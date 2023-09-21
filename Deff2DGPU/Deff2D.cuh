@@ -124,9 +124,9 @@ int printOptions(options* opts){
 		printf("Name of output file: %s\n", opts->outputFilename);
 
 		if(opts->printCmap == 0){
-			printf("Print Temperature Map = False\n");
+			printf("Print Concentration Map = False\n");
 		} else{
-			printf("Temperature Map Name = %s\n", opts->CMapName);
+			printf("Concentration Map Name = %s\n", opts->CMapName);
 		}
 		printf("--------------------------------------\n\n");
 	} else if(opts->BatchFlag == 1){
@@ -143,9 +143,9 @@ int printOptions(options* opts){
 		printf("Name of output file: %s\n", opts->outputFilename);
 		printf("Number of files to run: %d\n", opts->NumImg);
 		if (opts->printCmap == 1){
-			printf("Printing Temperature Distribution for all images.\n");
+			printf("Printing Concentration Distribution for all images.\n");
 		} else{
-			printf("No temperature maps will be printed.\n");
+			printf("No Concentration maps will be printed.\n");
 		}
 		printf("--------------------------------------\n\n");
 	} else{
