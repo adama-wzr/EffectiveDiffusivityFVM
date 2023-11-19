@@ -292,6 +292,20 @@ int readImage(options opts, simulationInfo* myImg){
 	return 0;
 }
 
+float WeightedHarmonicMean(float w1, float w2, float x1, float x2){
+	/*
+		WeightedHarmonicMean Function:
+		Inputs:
+			-w1: weight of the first number
+			-w2: weight of the second number
+			-x1: first number to be averaged
+			-x2: second number to be averaged
+		Output:
+			- returns H, the weighted harmonic mean between x1 and x2, using weights w1 and w2.
+	*/
+	float H = (w1 + w2)/(w1/x1 + w2/x2);
+	return H;
+}
 
 int readImageBatch(options opts, simulationInfo* myImg, char* filename){
 	/*
@@ -339,6 +353,51 @@ float calcPorosity(unsigned char* imageAddress, int Width, int Height){
 	}
 
 	return porosity;
+}
+
+float Residual(int numRows, int numCols, options* o, float* cmap, float* D){
+	/*
+		Function to calculate residual convergence (Conservation of energy in this problem)
+
+	*/
+
+	float dx = 1.0/numCols;
+	float dy = 1.0/numRows;
+
+	float TL = o->CLeft;
+	float TR = o->CRight;
+
+	float qE, qW, qS, qN;
+	float R = 0;
+	for(int row = 0; row<numRows; row++){
+		for(int col = 0; col<numCols; col++){
+			if(col == 0){
+				qW = dy/(dx/2)*D[row*numCols + col]*(cmap[row*numCols + col] - TL);
+				qE = dy/(dx)*WeightedHarmonicMean(dx/2, dx/2, D[row*numCols + col],D[row*numCols + col+1])*(cmap[row*numCols + col + 1] - cmap[row*numCols + col]);
+			} else if(col == numCols - 1){
+				qW = dy/(dx)*WeightedHarmonicMean(dx/2, dx/2, D[row*numCols + col],D[row*numCols + col-1])*(cmap[row*numCols + col] - cmap[row*numCols + col-1]);
+				qE = dy/(dx/2)*D[row*numCols + col]*(TR - cmap[row*numCols + col]);
+			} else{
+				qW = dy/(dx)*WeightedHarmonicMean(dx/2, dx/2, D[row*numCols + col],D[row*numCols + col-1])*(cmap[row*numCols + col] - cmap[row*numCols + col-1]);
+				qE = dy/(dx)*WeightedHarmonicMean(dx/2, dx/2, D[row*numCols + col],D[row*numCols + col+1])*(cmap[row*numCols + col + 1] - cmap[row*numCols + col]);
+			}
+			if(row == 0){
+				qN = 0;
+				qS = dy/dx*WeightedHarmonicMean(dx/2, dx/2, D[(row+1)*numCols + col], D[(row)*numCols + col])*(cmap[(row+1)*numCols + col] - cmap[row*numCols + col]);
+			} else if(row == numRows - 1){
+				qS = 0;
+				qN = dy/dx*WeightedHarmonicMean(dx/2, dx/2, D[(row-1)*numCols + col], D[(row)*numCols + col])*(cmap[(row)*numCols + col] - cmap[(row-1)*numCols + col]);
+			} else{
+				qS = dy/dx*WeightedHarmonicMean(dx/2, dx/2, D[(row+1)*numCols + col], D[(row)*numCols + col])*(cmap[(row+1)*numCols + col] - cmap[row*numCols + col]);
+				qN = dy/dx*WeightedHarmonicMean(dx/2, dx/2, D[(row-1)*numCols + col], D[(row)*numCols + col])*(cmap[(row)*numCols + col] - cmap[(row-1)*numCols + col]);
+			}
+			R += fabs(qW - qE + qN - qS);
+		}
+	}
+
+	R = R/(numCols*numRows);
+
+	return R;
 }
 
 int aStarMain(unsigned int* GRID, domainInfo info){
@@ -588,21 +647,6 @@ int aStarMain(unsigned int* GRID, domainInfo info){
 
 }
 
-float WeightedHarmonicMean(float w1, float w2, float x1, float x2){
-	/*
-		WeightedHarmonicMean Function:
-		Inputs:
-			-w1: weight of the first number
-			-w2: weight of the second number
-			-x1: first number to be averaged
-			-x2: second number to be averaged
-		Output:
-			- returns H, the weighted harmonic mean between x1 and x2, using weights w1 and w2.
-	*/
-	float H = (w1 + w2)/(w1/x1 + w2/x2);
-	return H;
-}
-
 int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts){
 	/*
 		DiscretizeMatrix2D
@@ -816,10 +860,9 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 {
 
 	int iterCount = 0;
-	float percentChange = 1;
+	float Res = 1;
 	int threads_per_block = 160;
 	int numBlocks = mesh.nElements/threads_per_block + 1;
-	float deffOld = 1;
 	float deffNew = 1;
 	int iterToCheck = 1000;
 	float Q1,Q2;
@@ -869,7 +912,7 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 
 	cudaEventRecord(start, 0);
 
-	while(iterCount < opts.MAX_ITER && opts.ConvergeCriteria < percentChange)
+	while(iterCount < opts.MAX_ITER && opts.ConvergeCriteria < Res)
 	{
 		// Call Kernel to Calculate new x-vector
 		
@@ -901,17 +944,15 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 			Q2 = Q2;
 			qAvg = (Q1 + Q2)/2;
 			deffNew = qAvg/((opts.CRight - opts.CLeft));
-			percentChange = fabs((deffNew - deffOld)/deffOld);
-			deffOld = deffNew;
+			Res = Residual(numRows, numCols, &opts, x_vec, D);
+			if(opts.verbose == 1 && opts.BatchFlag == 0){
+				printf("Iteration = %d, Deff = %2.3f, Residual = %1.7f\n", iterCount, deffNew/opts.DCfluid, Res);
+			}			
 
-			// printf("Iteration = %d, Keff = %2.3f\n", iterCount, deffNew);
-
-			if (percentChange < 0.001){
-				iterToCheck = 100;
-			} else if(percentChange < 0.0001){
-				iterToCheck = 10;
+			if (Res < 0.001){
+				iterToCheck = 1000;
 			}
-			myImg->conv = percentChange;
+			myImg->conv = Res;
 		}
 
 		// Update iteration count
@@ -1107,6 +1148,10 @@ int SingleSim(options opts){
 		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
 			d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
 
+		if(opts.verbose == 1){
+			printf("Iterations taken = %d\n", iter_taken);
+		}
+
 		// non-dimensional and normalized Deff
 
 		myImg.deff = myImg.deff/DCF;
@@ -1248,8 +1293,7 @@ int BatchSim(options opts){
 
 		// Diffusion coefficients
 
-		float DCF_Max = opts.DCfluid;
-		float DCF = 10.0f;
+		float DCF = opts.DCfluid;
 		float DCS = opts.DCsolid;
 
 		// We will use an artificial scaling of the diffusion coefficient to converge to the correct solution
@@ -1292,57 +1336,42 @@ int BatchSim(options opts){
 			return 0;
 		}
 
-		// determine DCF scaling approach
-
-		int count = 1;
-
-		while(DCF <= DCF_Max){
-			DCF = std::pow(100,count);
-			if(DCF >= DCF_Max){
-				DCF = DCF_Max;
-			}
-			// Populate arrays wiht zeroes
-			memset(MFL, 0, sizeof(MFL));
-			memset(MFR, 0, sizeof(MFR));
-			memset(CoeffMatrix, 0, sizeof(CoeffMatrix));
-			memset(RHS, 0, sizeof(RHS));
-			// Populate D according to DCF, DCS, and target image. Mesh amplification is employed at this step
-			// 			on converting the actual 2D image into a simulation domain.
-			for(int i = 0; i<mesh.numCellsY; i++){
-				MFL[i] = 0;
-				MFR[i] = 0;
-				for(int j = 0; j<mesh.numCellsX; j++){
-					int targetIndexRow = i/opts.MeshIncreaseY;
-					int targetIndexCol = j/opts.MeshIncreaseX;
-					if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 150){
-						D[i*mesh.numCellsX + j] = DCF;
-					} else{
-						D[i*mesh.numCellsX + j] = DCS;
-					}
+		// Populate arrays wiht zeroes
+		memset(MFL, 0, sizeof(MFL));
+		memset(MFR, 0, sizeof(MFR));
+		memset(CoeffMatrix, 0, sizeof(CoeffMatrix));
+		memset(RHS, 0, sizeof(RHS));
+		// Populate D according to DCF, DCS, and target image. Mesh amplification is employed at this step
+		for(int i = 0; i<mesh.numCellsY; i++){
+			MFL[i] = 0;
+			MFR[i] = 0;
+			for(int j = 0; j<mesh.numCellsX; j++){
+				int targetIndexRow = i/opts.MeshIncreaseY;
+				int targetIndexCol = j/opts.MeshIncreaseX;
+				if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 150){
+					D[i*mesh.numCellsX + j] = DCF;
+				} else{
+					D[i*mesh.numCellsX + j] = DCS;
 				}
 			}
-
-			// Now that we have all pieces, generate the coefficient matrix
-
-			DiscretizeMatrix2D(D, CoeffMatrix, RHS, mesh, opts);
-
-			// Solve with GPU
-			int iter_taken = 0;
-			iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
-				d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
-
-			// non-dimensional and normalized Deff
-
-			myImg.deff = myImg.deff/DCF;
-
-			// update DCF
-
-			if(DCF == DCF_Max){
-				break;
-			}
-
-			count++;
 		}
+
+		// Discretize
+
+		DiscretizeMatrix2D(D, CoeffMatrix, RHS, mesh, opts);
+
+		// Solve with GPU
+		int iter_taken = 0;
+		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
+			d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+		if(opts.verbose == 1){
+			printf("Iterations taken = %d\n", iter_taken);
+		}
+
+		// Normalize
+
+		myImg.deff = myImg.deff/DCF;
 
 		if(opts.verbose == 1){
 			std::cout << "Number" << imageNum << "DCF = " << DCF << ", Deff " << myImg.deff << std::endl;
@@ -1359,7 +1388,7 @@ int BatchSim(options opts){
 		output[imageNum*9 + 5] = mesh.nElements;
 		output[imageNum*9 + 6] = myImg.conv;
 		output[imageNum*9 + 7] = opts.DCsolid;
-		output[imageNum*9 + 8] = DCF_Max;
+		output[imageNum*9 + 8] = DCF;
 
 		// Free everything
 
