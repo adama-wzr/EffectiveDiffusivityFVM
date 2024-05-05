@@ -413,7 +413,7 @@ void createCMAP(double *CMap, options *opts, meshInfo *mesh)
 
 	FILE *OUTPUT;
 
-	OUTPUT = fopen(opts->CMapName, "a+");
+	OUTPUT = fopen(opts->CMapName, "w+");
 	fprintf(OUTPUT, "X,Y,C\n");
 	for(int i = 0; i<mesh->numCellsY; i++){
 		for(int j = 0; j<mesh->numCellsX; j++){
@@ -425,155 +425,258 @@ void createCMAP(double *CMap, options *opts, meshInfo *mesh)
 }
 
 
-bool FloodFillPath(int *Grid, int height, int width){
-    /*
-        FloodFillPath algorithm:
+int FloodFill(unsigned int* Grid, meshInfo* simInfo)
+{
+	/*
+		Flood Fill algorithm:
 
-        Inputs:
-            - pointer to Grid: array containing the location of solids and fluids
-            - int height: height of the domain in pixels
-            - int width: width of the domain in pixels
+		Inputs:
+			- pointer to Grid: array containing the location of solids and fluids
+			- simulationInfo* simInfo: pointer to struct containing the simInfo
 
-        Outputs:
-            - None
+		Outputs:
+			- None
 
-        Function will modify the Grid array. If fluid is connected between the two boundaries,
-        function will return a true, otherwise false.
-    */
+		Function will modify the Grid array. If fluid is not participating, it will
+		be assigned a flag of 2.
+	*/
 
-    // Declare variables
-    int nElements = height*width;
+	int* Domain = (int *)malloc(sizeof(int)*simInfo->nElements);
+	int index;
 
-    int* Domain = (int *)malloc(sizeof(int)*nElements);
-    int index;
+	// Step 1: Initialize all solids in the domain
 
-    // Initialize solid and fluid voxels
+	for(int row = 0; row<simInfo->numCellsY; row++){
+		for(int col = 0; col<simInfo->numCellsX; col++){
+			index = row*simInfo->numCellsX + col;
+			if(Grid[index] == 1){
+				Domain[index] = 1;
+			} else{
+				Domain[index] = -1;
+			}
+		}
+	}
 
-    for(int i = 0; i<nElements; i++){
-        if(Grid[i] == 1)
-        {
-            Domain[i] = 1;  // solid
-        }else
-        {
-            Domain[i] = -1; // fluid
-        }
-    }
+	// Step 2: Find fluid in the two boundaries (left and right), set flag to 0, add to open list
 
-    // Search is done from left to right
-    // Initialize all fluid in the left boundary
+	std::set<coordPair> cList;
 
-    std::set<coordPair> cList;
+	for(int row = 0; row<simInfo->numCellsY; row++){
+		int indexL = row*simInfo->numCellsX;
+		int indexR = row*simInfo->numCellsX + simInfo->numCellsX - 1;
 
-    for(int row = 0; row<height; row++){
-        if(Domain[row*width] == -1){
-            Domain[row*width] = 0;
-            cList.insert(std::make_pair(row, 0));
-        }
-    }
+		if(Domain[indexL] == -1){
+			Domain[indexL] = 0;
+			cList.insert(std::make_pair(row, 0));
+		}
 
-    // begin search
+		if (Domain[indexR] == -1){
+			Domain[indexR] = 0;
+			cList.insert(std::make_pair(row, simInfo->numCellsX-1));
+		}
+	}
 
-    while(!cList.empty()){
-        // Pop first item in the list
-        coordPair pop = *cList.begin();
+	while(!cList.empty())
+	{
+		// Pop first item in the list
+		coordPair pop = *cList.begin();
 
-        // remove from open list
-        cList.erase(cList.begin());
+		// remove from open list
+		cList.erase(cList.begin());
 
-        // Get coordinates from popped item
-        int row = pop.first; // first argument of the second pair
-        int col = pop.second; // second argument of second pair
+		// Get coordinates from popped item
+		int row = pop.first; // first argument of the second pair
+		int col = pop.second; // second argument of second pair
 
-        /*
-            Now we need to check North, South, East, and West for more fluid:
-                North: row - 1, col
-                South: row + 1, col
-                West: row, col - 1
-                East: row, col + 1
-            Details:
-                - No diagonals are checked.
-                - Periodic BC North and South
-        */
+		/*
+			Now we need to check North, South, East, and West for more fluid:
+				North: row - 1, col
+				South: row + 1, col
+				West: row, col - 1
+				East: row, col + 1
+			Details:
+				- No diagonals are checked.
+				- Periodic BC North and South
 
-        int tempRow, tempCol;
+		*/
 
-        // North
-        tempCol = col;
+		int tempRow, tempCol;
 
-        // check periodic boundary
-        if(row == 0){
-            tempRow = height - 1;
-        } else{
-            tempRow = row - 1;
-        }
+		// North
+		tempCol = col;
 
-        // Update list if necessary
+		// check periodic boundary
+		if(row == 0){
+			tempRow = simInfo->numCellsY - 1;
+		} else{
+			tempRow = row - 1;
+		}
 
-        if(Domain[tempRow*width + tempCol] == -1){
-            Domain[tempRow*width + tempCol] = 0;
-            cList.insert(std::make_pair(tempRow, tempCol));
-        }
+		// Update list if necessary
 
-        // South
+		if(Domain[tempRow*simInfo->numCellsX + tempCol] == -1){
+			Domain[tempRow*simInfo->numCellsX + tempCol] = 0;
+			cList.insert(std::make_pair(tempRow, tempCol));
+		}
 
-        tempCol = col;
+		// South
 
-        // check periodic boundary
+		tempCol = col;
 
-        if(row == height - 1){
-            tempRow = 0;
-        } else{
-            tempRow = row + 1;
-        }
+		// check periodic boundary
 
-        // Update list if necessary
+		if(row == simInfo->numCellsY - 1){
+			tempRow = 0;
+		} else{
+			tempRow = row + 1;
+		}
 
-        if(Domain[tempRow*width + tempCol] == -1){
-            Domain[tempRow*width + tempCol] = 0;
-            cList.insert(std::make_pair(tempRow, tempCol));
-        }
+		// Update list if necessary
 
-        // West
+		if(Domain[tempRow*simInfo->numCellsX + tempCol] == -1){
+			Domain[tempRow*simInfo->numCellsX + tempCol] = 0;
+			cList.insert(std::make_pair(tempRow, tempCol));
+		}
 
-        if(col != 0){
-            tempCol = col - 1;
-            tempRow = row;
+		// West
 
-            if(Domain[tempRow*width + tempCol] == -1){
-                Domain[tempRow*width + tempCol] = 0;
-                cList.insert(std::make_pair(tempRow, tempCol));
-            }
-        }
+		if(col != 0){
+			tempCol = col - 1;
+			tempRow = row;
 
-        // East
+			if(Domain[tempRow*simInfo->numCellsX + tempCol] == -1){
+				Domain[tempRow*simInfo->numCellsX + tempCol] = 0;
+				cList.insert(std::make_pair(tempRow, tempCol));
+			}
+		}
 
-        if(col != width - 1){
-            tempCol = col + 1;
-            tempRow = row;
+		// East
 
-            if(Domain[tempRow*width + tempCol] == -1){
-                Domain[tempRow*width + tempCol] = 0;
-                cList.insert(std::make_pair(tempRow, tempCol));
-            }
-        }
-    }
+		if(col != simInfo->numCellsX - 1){
+			tempCol = col + 1;
+			tempRow = row;
 
-    // Look for connected pixels in the right boundary
+			if(Domain[tempRow*simInfo->numCellsX + tempCol] == -1){
+				Domain[tempRow*simInfo->numCellsX + tempCol] = 0;
+				cList.insert(std::make_pair(tempRow, tempCol));
+			}
+		}
+		// repeat everything if list is still not empty
+	}
 
-    for(int row = 0; row<height;row++){
-        int col = width - 1;
-        index = row*width + col;
-        if (Domain[index] == 0){
-            // connected pixels found
-            free(Domain);
-            return true;
-        }
-    }
+	// Every flag that is still -1 means its non-participating fluid
 
-    // no connected pixels found
+	for(int row = 0; row<simInfo->numCellsY; row++){
+		for(int col = 0; col<simInfo->numCellsX; col++){
+			index = row*simInfo->numCellsX + col;
+			if(Domain[index] == -1){
+				Grid[index] = 2;
+			}
+		}
+	}
 
-    free(Domain);
-    return false;  
+	free(Domain);
+
+	return 0;
+}
+
+int DiscretizeMatrix2D_ImpSolid(double* D, double* A, double* b, meshInfo mesh, options opts, unsigned int* Grid){
+	/*
+		DiscretizeMatrix2D_ImpSolid
+
+		Inputs:
+			- pointer to double array D, where local diffusion coefficients are stored
+			- pointer to empty coefficient matrix
+			- pointer to RHS of the system of equations
+			- datastructure containing mesh information
+			- datastructure with the user-entered options
+			- pointer to grid. Grid contains domain phase information
+		Output:
+			- None
+
+			Function creates the CoeffMatrix and RHS of the system of equations and stores them
+			on the appropriate memory spaces. The difference is now we correct for impermeable solid
+			as well as non-participating media.
+	*/
+
+	int index;
+	double dxw, dxe, dys, dyn;
+	double kw, ke, ks, kn;
+
+	double dx, dy;
+	dx = mesh.dx;
+	dy = mesh.dy;
+
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
+			// initialize everything to zeroes
+			index = (i*mesh.numCellsX + j); 
+			b[index] = 0;
+			for(int k = 0; k<5; k++){
+				A[index*5 + k] = 0;
+			}
+			if(Grid[index] == 1 || Grid[index] == 2){	// Correction for non-participating media
+				A[index*5 + 0] = 1;
+				b[index] = 0;
+			} else{
+				// left boundary, only P and E
+				if (j == 0){
+					dxe = dx;
+					ke = WeightedHarmonicMean(dxe/2,dxe/2, D[index], D[index+1]);
+					dxw = dx/2;
+					kw = D[index];
+					A[index*5 + 2] = -ke*dy/dxe;
+					A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+					b[index] += opts.CLeft*kw*dy/dxw;
+				} else if(j == mesh.numCellsX - 1){		// Right boundary, only P and W
+					dxw = dx;
+					kw = WeightedHarmonicMean(dxw/2,dxw/2, D[index], D[index-1]);
+					dxe = dx/2;
+					ke = D[index];
+					A[index*5 + 1] = -kw*dy/dxw;
+					A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+					b[index] += opts.CRight*ke*dy/dxe;
+				} else{								// P, W, and E
+					dxw = dx;
+					kw = WeightedHarmonicMean(dxw/2,dxw/2, D[index], D[index-1]);
+					dxe = dx;
+					ke = WeightedHarmonicMean(dxe/2,dxe/2, D[index], D[index+1]);
+					A[index*5 + 1] = -kw*dy/dxw;
+					A[index*5 + 2] = -ke*dy/dxe;
+					A[index*5 + 0] += (ke*dy/dxe + kw*dy/dxw);
+				}
+				// top boundary, only S and P
+				if (i == 0){
+					dyn = dy/2;
+					kn = D[index];
+					dys = dy;
+					ks = WeightedHarmonicMean(dys/2, dys/2, D[index + mesh.numCellsX], D[index]);
+					A[index*5 + 3] = -ks*dx/dys;
+					A[index*5 + 0] += (ks*dx/dys);
+				}else if(i == mesh.numCellsY - 1){
+					dyn = dy;
+					kn = WeightedHarmonicMean(dyn/2, dyn/2, D[index], D[index - mesh.numCellsX]);
+					dys = dy/2;
+					ks = D[index];
+					A[index*5 + 4] = -kn*dx/dyn;
+					A[index*5 + 0] += kn*dx/dyn;
+				} else{
+					dyn = dy;
+					kn = WeightedHarmonicMean(dyn/2, dyn/2, D[index], D[index - mesh.numCellsX]);
+					dys = dy;
+					ks = WeightedHarmonicMean(dys/2, dys/2, D[index + mesh.numCellsX], D[index]);
+					A[index*5 + 3] = -ks*dx/dys;
+					A[index*5 + 4] = -kn*dx/dyn;
+					A[index*5 + 0] += (kn*dx/dyn + ks*dx/dys);
+				}
+			}
+		}
+	}
+
+	return 0;
+
+
+
 }
 
 
@@ -786,50 +889,54 @@ void unInitializeGPU(double **d_x_vec, double **d_temp_x_vec, double **d_RHS, do
 }
 
 int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, options opts,
-	double *d_x_vec, double *d_temp_x_vec, double *d_Coeff, double *d_RHS, double *MFL, double *MFR, double *D, meshInfo mesh, simulationInfo* myImg)
+			  double *d_x_vec, double *d_temp_x_vec, double *d_Coeff, double *d_RHS, double *MFL, double *MFR, double *D, meshInfo mesh, simulationInfo *myImg)
 {
 
 	int iterCount = 0;
 	double Res = 1;
 	int threads_per_block = 160;
-	int numBlocks = mesh.nElements/threads_per_block + 1;
+	int numBlocks = mesh.nElements / threads_per_block + 1;
 	double deffNew = 1;
 	int iterToCheck = 1000;
-	double Q1,Q2;
+	double Q1, Q2;
 	double qAvg = 0;
-	double dx,dy;
+	double dx, dy;
 	int numRows = mesh.numCellsY;
 	int numCols = mesh.numCellsX;
-	const char *str = (char*) malloc(1024); // To store error string
+	const char *str = (char *)malloc(1024); // To store error string
 
 	dx = mesh.dx;
 	dy = mesh.dy;
 
-	int nRows = mesh.nElements;	// number of rows in the coefficient matrix
-	int nCols = 5;							// number of cols in the coefficient matrix
+	int nRows = mesh.nElements; // number of rows in the coefficient matrix
+	int nCols = 5;				// number of cols in the coefficient matrix
 
 	// Initialize temp_x_vec
 
-	for(int i = 0; i<nRows; i++){
+	for (int i = 0; i < nRows; i++)
+	{
 		temp_x_vec[i] = x_vec[i];
 	}
 
-	//Copy arrays into GPU memory
+	// Copy arrays into GPU memory
 
 	cudaError_t cudaStatus = cudaMemcpy(d_temp_x_vec, temp_x_vec, sizeof(double) * nRows, cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
+	if (cudaStatus != cudaSuccess)
+	{
 		fprintf(stderr, "temp_x_vec cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
 	}
-	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(double)*nRows, cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
+	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(double) * nRows, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
 		fprintf(stderr, "d_RHS cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
 	}
-	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(double)*nRows*nCols, cudaMemcpyHostToDevice);
-	if (cudaStatus != cudaSuccess) {
+	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(double) * nRows * nCols, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
 		fprintf(stderr, "d_Coeff cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
@@ -842,10 +949,10 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 
 	cudaEventRecord(start, 0);
 
-	while(iterCount < opts.MAX_ITER && opts.ConvergeCriteria < Res)
+	while (iterCount < opts.MAX_ITER && opts.ConvergeCriteria < Res)
 	{
 		// Call Kernel to Calculate new x-vector
-		
+
 		updateX_V1<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
 
 		// update x vector
@@ -854,32 +961,37 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 
 		// Convergence related material
 
-		if (iterCount % iterToCheck == 0){
+		if (iterCount % iterToCheck == 0)
+		{
 			cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToHost);
-			if (cudaStatus != cudaSuccess) {
+			if (cudaStatus != cudaSuccess)
+			{
 				fprintf(stderr, "x_vec cudaMemcpy failed!");
 				str = cudaGetErrorString(cudaStatus);
 				fprintf(stderr, "CUDA Error!:: %s\n", str);
 			}
 			Q1 = 0;
 			Q2 = 0;
-			for (int j = 0; j<numRows; j++){
-				MFL[j] = D[j*numRows]*dy*(x_vec[j*numCols] - opts.CLeft)/(dx/2);
-				MFR[j] = D[(j + 1)*numRows - 1]*dy*(opts.CRight - x_vec[(j+1)*numCols -1])/(dx/2);
+			for (int j = 0; j < numRows; j++)
+			{
+				MFL[j] = D[j * numRows] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2);
+				MFR[j] = D[(j + 1) * numRows - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2);
 				// printf("T(0,%d) = %2.3f\n", j, x_vec[j*numCols]);
 				Q1 += MFL[j];
 				Q2 += MFR[j];
 			}
 			Q1 = Q1;
 			Q2 = Q2;
-			qAvg = (Q1 + Q2)/2;
-			deffNew = qAvg/((opts.CRight - opts.CLeft));
+			qAvg = (Q1 + Q2) / 2;
+			deffNew = qAvg / ((opts.CRight - opts.CLeft));
 			Res = Residual(numRows, numCols, &opts, x_vec, D);
-			if(opts.verbose == 1 && opts.BatchFlag == 0){
-				printf("Iteration = %d, Deff = %2.3f, Residual = %1.7f\n", iterCount, deffNew/opts.DCfluid, Res);
-			}			
+			if (opts.verbose == 1 && opts.BatchFlag == 0)
+			{
+				printf("Iteration = %d, Deff = %2.3f, Residual = %1.7f\n", iterCount, deffNew / opts.DCfluid, Res);
+			}
 
-			if (Res < 0.001){
+			if (Res < 0.001)
+			{
 				iterToCheck = 1000;
 			}
 			myImg->conv = Res;
@@ -895,9 +1007,10 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 	float elapsedTime;
 	cudaEventElapsedTime(&elapsedTime, start, stop);
 
-	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double)*nRows, cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToHost);
 
-	if (cudaStatus != cudaSuccess) {
+	if (cudaStatus != cudaSuccess)
+	{
 		fprintf(stderr, "x_vec cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
@@ -907,9 +1020,193 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 
 	myImg->gpuTime += elapsedTime;
 
-
 	return iterCount;
 }
+
+int SingleSim3Phase(options opts){
+	/*
+		Function to read a single image and simulate the effective diffusivity for 3 phases.
+		Results are stored on the output file.
+
+		Inputs:
+			Datastructure with user-defined simulation options
+		Outputs:
+			none
+	*/
+
+	// Define data structures
+
+	simulationInfo myImg;
+
+	meshInfo mesh;
+
+	// first step is to read the image
+
+	readImage(opts, &myImg);
+
+	// Error messages
+
+	if (myImg.nChannels != 1){
+		printf("Error: please enter a grascale image with 1 channel.\n Current number of channels = %d\n", myImg.nChannels);
+		return 1;
+	}
+
+	// Define number of cells in each direction
+
+	mesh.numCellsX = myImg.Width*opts.MeshIncreaseX;
+	mesh.numCellsY = myImg.Height*opts.MeshIncreaseY;
+	mesh.nElements = mesh.numCellsX*mesh.numCellsY;
+	mesh.dx = 1.0/mesh.numCellsX;
+	mesh.dy = 1.0/mesh.numCellsY;
+
+	// Use pathfinding algorithm
+
+	myImg.PathFlag = false;
+
+	// Declare search boundaries for the domain
+
+	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
+
+	// Only solid matters, as it is impermeable
+
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
+			if(myImg.target_data[i*myImg.Width + j] > 150){
+				Grid[i*myImg.Width + j] = 1;
+			} else{
+				Grid[i*myImg.Width + j] = 0;
+			}
+		}
+	}
+
+	// Search path. This function will also mark the non-participating fluid
+
+	FloodFill(Grid, &mesh);
+
+	myImg.PathFlag = 1;
+
+	// For this algorithm we continue whether there was a path or not
+
+	// Diffusion coefficients
+
+	double DCF = opts.DCfluid;
+	double DCG = opts.DCgas;
+	double DCS = opts.DCsolid;
+
+	// Declare useful arrays
+	double *D = (double*)malloc(sizeof(double)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+	double *MFL = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the left boundary
+	double *MFR = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the right boundary
+
+	double *CoeffMatrix = (double *)malloc(sizeof(double)*mesh.nElements*5);					// array will be used to store our coefficient matrix
+	double *RHS = (double *)malloc(sizeof(double)*mesh.nElements);										// array used to store RHS of the system of equations
+	double *ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
+	double *temp_ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
+
+	// Initialize the concentration map with a linear gradient between the two boundaries
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
+			ConcentrationDist[i*mesh.numCellsX + j] = (double)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+		}
+	}
+
+	// Zero the time
+
+	myImg.gpuTime = 0;
+
+	// Declare GPU arrays
+
+	double *d_x_vec = NULL;
+	double *d_temp_x_vec = NULL;
+	
+	double *d_Coeff = NULL;
+	double *d_RHS = NULL;
+
+	// Initialize the GPU arrays
+
+	if(!initializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff, mesh))
+	{
+		printf("\n Error when allocating space in GPU");
+		unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+		return 0;
+	}
+
+	// Populate D according to DCF, DCS, DCG, and target image. Mesh amplification is employed at this step
+	// 	on converting the actual 2D image into a simulation domain.
+
+	/*
+	
+	Target Grayscale Image Requirements:
+	- Solid = 255
+	- Fluid = 150
+	- Gas = 0
+
+	*/
+
+
+	for(int i = 0; i<mesh.numCellsY; i++){
+		MFL[i] = 0;
+		MFR[i] = 0;
+		for(int j = 0; j<mesh.numCellsX; j++){
+			int targetIndexRow = i/opts.MeshIncreaseY;
+			int targetIndexCol = j/opts.MeshIncreaseX;
+			if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] > 200){
+				D[i*mesh.numCellsX + j] = DCS;
+			} else if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 50){
+				D[i*mesh.numCellsX + j] = DCG;
+			} else{
+				D[i*mesh.numCellsX + j] = DCF;
+			}
+		}
+	}
+
+	// Now that we have all pieces, generate the coefficient matrix
+
+	DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+	// Solve with GPU
+	int iter_taken = 0;
+	iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
+		d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+	if(opts.verbose == 1){
+		printf("Iterations taken = %d\n", iter_taken);
+	}
+
+	// non-dimensional and normalized Deff
+
+	myImg.deff = myImg.deff/DCF;
+
+	// Print if applicable
+
+	if(opts.verbose == 1){
+		std::cout << "DCF = " << DCF << ", Deff " << myImg.deff << std::endl;
+	}
+
+	// create output file 
+
+	outputSingle(opts, mesh, myImg);
+
+	// Create Concentration Map
+
+	if(opts.printCmap == 1){
+		createCMAP(ConcentrationDist, &opts, &mesh);
+	}
+
+	// Free everything
+
+	unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
+	free(MFL);
+	free(MFR);
+	free(CoeffMatrix);
+	free(RHS);
+	free(ConcentrationDist);
+	free(temp_ConcentrationDist);
+	free(D);
+
+	return 0;
+}
+
 
 int SingleSim(options opts){
 	/*
@@ -967,7 +1264,7 @@ int SingleSim(options opts){
 
 	// Declare search boundaries for the domain
 
-	int *Grid = (int*)malloc(sizeof(int)*mesh.numCellsX*mesh.numCellsY);
+	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
 
 	for(int i = 0; i<mesh.numCellsY; i++){
 		for(int j = 0; j<mesh.numCellsX; j++){
@@ -981,7 +1278,7 @@ int SingleSim(options opts){
 
 	// Search path
 
-	myImg.PathFlag = FloodFillPath(Grid, mesh.numCellsY, mesh.numCellsX);
+	myImg.PathFlag = FloodFill(Grid, &mesh);
 
 	free(Grid);
 
@@ -1195,7 +1492,7 @@ int BatchSim(options opts){
 
 		// Declare search boundaries for the domain
 
-		int *Grid = (int*)malloc(sizeof(int)*mesh.numCellsX*mesh.numCellsY);
+		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
 
 		for(int i = 0; i<mesh.numCellsY; i++){
 			for(int j = 0; j<mesh.numCellsX; j++){
@@ -1209,7 +1506,7 @@ int BatchSim(options opts){
 
 		// Search path
 
-		myImg.PathFlag = FloodFillPath(Grid, mesh.numCellsY, mesh.numCellsX);
+		myImg.PathFlag = FloodFill(Grid, &mesh);
 
 		// For this algorithm we continue whether there was a path or not
 

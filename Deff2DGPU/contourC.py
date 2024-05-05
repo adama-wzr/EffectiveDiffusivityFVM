@@ -16,7 +16,7 @@ img = np.uint8(mpimg.imread(imgName))
 
 # df1 = pd.read_csv("ExpUV_mod.csv")
 # df1 = pd.read_csv("UV.csv")
-df1 = pd.read_csv("CMAP_00001.csv")
+df1 = pd.read_csv("CMAP_00000.csv")
 # get raw data from csv files
 
 raw_data = df1[["X","Y","C"]].to_numpy()
