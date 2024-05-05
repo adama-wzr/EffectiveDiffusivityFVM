@@ -974,9 +974,8 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 			Q2 = 0;
 			for (int j = 0; j < numRows; j++)
 			{
-				MFL[j] = D[j * numRows] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2);
-				MFR[j] = D[(j + 1) * numRows - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2);
-				// printf("T(0,%d) = %2.3f\n", j, x_vec[j*numCols]);
+				MFL[j] = D[j * numCols] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
+				MFR[j] = D[(j + 1) * numCols - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
 				Q1 += MFL[j];
 				Q2 += MFR[j];
 			}
@@ -1071,7 +1070,7 @@ int SingleSim3Phase(options opts){
 
 	for(int i = 0; i<mesh.numCellsY; i++){
 		for(int j = 0; j<mesh.numCellsX; j++){
-			if(myImg.target_data[i*myImg.Width + j] > 150){
+			if(myImg.target_data[i*myImg.Width + j] > 200){
 				Grid[i*myImg.Width + j] = 1;
 			} else{
 				Grid[i*myImg.Width + j] = 0;

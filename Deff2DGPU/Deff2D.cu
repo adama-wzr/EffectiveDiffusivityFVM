@@ -33,7 +33,6 @@ int main(void){
 	{
 		if (opts.BatchFlag == 0)
 		{
-			printf("Here!\n");
 			SingleSim3Phase(opts);
 		}
 		else if (opts.BatchFlag == 1)
