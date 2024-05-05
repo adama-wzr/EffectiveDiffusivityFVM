@@ -138,29 +138,32 @@ int printOptions(options* opts){
 	return 0;
 }
 
-int outputSingle(options opts, meshInfo mesh, simulationInfo myImg){
+int outputSingle(options opts, meshInfo mesh, simulationInfo myImg)
+{
 	FILE *OUTPUT;
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
-  OUTPUT = fopen(opts.outputFilename, "a+");
-  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
-  fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f,%f,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime/1000, mesh.nElements, myImg.conv,
-  	opts.DCsolid, opts.DCfluid);
-  fclose(OUTPUT);
-  return 0;
+	OUTPUT = fopen(opts.outputFilename, "a+");
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+	fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f,%f,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
+			opts.DCsolid, opts.DCfluid);
+	fclose(OUTPUT);
+	return 0;
 }
 
-int outputBatch(options opts, double* output){
+int outputBatch(options opts, double *output)
+{
 	FILE *OUTPUT;
 
-  OUTPUT = fopen(opts.outputFilename, "a+");
-  fprintf(OUTPUT,"imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
-  for(int i = 0; i<opts.NumImg; i++){
-  	fprintf(OUTPUT, "%d,%f,%d,%f,%f,%d,%f,%f,%f\n", i, output[i*9 + 1], (int)output[i*9 + 2], output[i*9 + 3], output[i*9 + 4], (int)output[i*9 + 5], output[i*9 + 6],
-			output[i*9 + 7], output[i*9 + 8]);
-  }
-  fclose(OUTPUT);
-  return 0;
+	OUTPUT = fopen(opts.outputFilename, "a+");
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+	for (int i = 0; i < opts.NumImg; i++)
+	{
+		fprintf(OUTPUT, "%d,%f,%d,%f,%f,%d,%f,%f,%f\n", i, output[i * 9 + 1], (int)output[i * 9 + 2], output[i * 9 + 3], output[i * 9 + 4], (int)output[i * 9 + 5], output[i * 9 + 6],
+				output[i * 9 + 7], output[i * 9 + 8]);
+	}
+	fclose(OUTPUT);
+	return 0;
 }
 
 int readInputFile(char* FileName, options* opts){
@@ -189,7 +192,7 @@ int readInputFile(char* FileName, options* opts){
 	opts->CMapName=(char*)malloc(1000*sizeof(char));
 	while(std::getline(InputFile, myText)){
 
-	 	sscanf(myText.c_str(), "%s %f", tempC, &tempD);
+	 	sscanf(myText.c_str(), "%s %lf", tempC, &tempD);
 	 	if (strcmp(tempC, "Ds:") == 0){
 	 		opts->DCsolid = tempD;
 	 	}else if(strcmp(tempC, "Df:") == 0){
@@ -377,6 +380,189 @@ double Residual(int numRows, int numCols, options* o, double* cmap, double* D){
 	R = R/(numCols*numRows);
 
 	return R;
+}
+
+
+void createCMAP(double *CMap, options *opts, meshInfo *mesh)
+{
+	/*
+		createCMAP function:
+
+		Inputs:
+			- pointer to CMap: pointer to array containing the concentration at each grid point.
+			- pointer to opts: pointer to options struct containing simulation options.
+			- pointer to mesh: pointer to mesh struct containing mesh information.
+		Outputs:
+			- None.
+
+		Funtion will create a .csv of the concentration distribution in the domain, using the user entered
+		name for the .csv file.
+	
+	*/
+
+	FILE *OUTPUT;
+
+	OUTPUT = fopen(opts->CMapName, "a+");
+	fprintf(OUTPUT, "X,Y,C\n");
+	for(int i = 0; i<mesh->numCellsY; i++){
+		for(int j = 0; j<mesh->numCellsX; j++){
+			fprintf(OUTPUT,"%d,%d,%lf\n", j, i, CMap[i*mesh->numCellsX + j]);
+		}
+	}
+	fclose(OUTPUT);
+
+}
+
+
+bool FloodFillPath(int *Grid, int height, int width){
+    /*
+        FloodFillPath algorithm:
+
+        Inputs:
+            - pointer to Grid: array containing the location of solids and fluids
+            - int height: height of the domain in pixels
+            - int width: width of the domain in pixels
+
+        Outputs:
+            - None
+
+        Function will modify the Grid array. If fluid is connected between the two boundaries,
+        function will return a true, otherwise false.
+    */
+
+    // Declare variables
+    int nElements = height*width;
+
+    int* Domain = (int *)malloc(sizeof(int)*nElements);
+    int index;
+
+    // Initialize solid and fluid voxels
+
+    for(int i = 0; i<nElements; i++){
+        if(Grid[i] == 1)
+        {
+            Domain[i] = 1;  // solid
+        }else
+        {
+            Domain[i] = -1; // fluid
+        }
+    }
+
+    // Search is done from left to right
+    // Initialize all fluid in the left boundary
+
+    std::set<coordPair> cList;
+
+    for(int row = 0; row<height; row++){
+        if(Domain[row*width] == -1){
+            Domain[row*width] = 0;
+            cList.insert(std::make_pair(row, 0));
+        }
+    }
+
+    // begin search
+
+    while(!cList.empty()){
+        // Pop first item in the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // Get coordinates from popped item
+        int row = pop.first; // first argument of the second pair
+        int col = pop.second; // second argument of second pair
+
+        /*
+            Now we need to check North, South, East, and West for more fluid:
+                North: row - 1, col
+                South: row + 1, col
+                West: row, col - 1
+                East: row, col + 1
+            Details:
+                - No diagonals are checked.
+                - Periodic BC North and South
+        */
+
+        int tempRow, tempCol;
+
+        // North
+        tempCol = col;
+
+        // check periodic boundary
+        if(row == 0){
+            tempRow = height - 1;
+        } else{
+            tempRow = row - 1;
+        }
+
+        // Update list if necessary
+
+        if(Domain[tempRow*width + tempCol] == -1){
+            Domain[tempRow*width + tempCol] = 0;
+            cList.insert(std::make_pair(tempRow, tempCol));
+        }
+
+        // South
+
+        tempCol = col;
+
+        // check periodic boundary
+
+        if(row == height - 1){
+            tempRow = 0;
+        } else{
+            tempRow = row + 1;
+        }
+
+        // Update list if necessary
+
+        if(Domain[tempRow*width + tempCol] == -1){
+            Domain[tempRow*width + tempCol] = 0;
+            cList.insert(std::make_pair(tempRow, tempCol));
+        }
+
+        // West
+
+        if(col != 0){
+            tempCol = col - 1;
+            tempRow = row;
+
+            if(Domain[tempRow*width + tempCol] == -1){
+                Domain[tempRow*width + tempCol] = 0;
+                cList.insert(std::make_pair(tempRow, tempCol));
+            }
+        }
+
+        // East
+
+        if(col != width - 1){
+            tempCol = col + 1;
+            tempRow = row;
+
+            if(Domain[tempRow*width + tempCol] == -1){
+                Domain[tempRow*width + tempCol] = 0;
+                cList.insert(std::make_pair(tempRow, tempCol));
+            }
+        }
+    }
+
+    // Look for connected pixels in the right boundary
+
+    for(int row = 0; row<height;row++){
+        int col = width - 1;
+        index = row*width + col;
+        if (Domain[index] == 0){
+            // connected pixels found
+            free(Domain);
+            return true;
+        }
+    }
+
+    // no connected pixels found
+
+    free(Domain);
+    return false;  
 }
 
 
@@ -770,7 +956,7 @@ int SingleSim(options opts){
 
 	// Declare search boundaries for the domain
 
-	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
+	int *Grid = (int*)malloc(sizeof(int)*mesh.numCellsX*mesh.numCellsY);
 
 	for(int i = 0; i<mesh.numCellsY; i++){
 		for(int j = 0; j<mesh.numCellsX; j++){
@@ -784,7 +970,7 @@ int SingleSim(options opts){
 
 	// Search path
 
-	// myImg.PathFlag =
+	myImg.PathFlag = FloodFillPath(Grid, mesh.numCellsY, mesh.numCellsX);
 
 	free(Grid);
 
@@ -902,6 +1088,12 @@ int SingleSim(options opts){
 
 	outputSingle(opts, mesh, myImg);
 
+	// Create Concentration Map
+
+	if(opts.printCmap == 1){
+		createCMAP(ConcentrationDist, &opts, &mesh);
+	}
+
 	// Free everything
 
 	unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
@@ -992,7 +1184,7 @@ int BatchSim(options opts){
 
 		// Declare search boundaries for the domain
 
-		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
+		int *Grid = (int*)malloc(sizeof(int)*mesh.numCellsX*mesh.numCellsY);
 
 		for(int i = 0; i<mesh.numCellsY; i++){
 			for(int j = 0; j<mesh.numCellsX; j++){
@@ -1006,9 +1198,7 @@ int BatchSim(options opts){
 
 		// Search path
 
-		// myImg.PathFlag =
-
-		free(Grid);
+		myImg.PathFlag = FloodFillPath(Grid, mesh.numCellsY, mesh.numCellsX);
 
 		// For this algorithm we continue whether there was a path or not
 
