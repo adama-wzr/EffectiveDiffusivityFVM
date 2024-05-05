@@ -17,14 +17,14 @@
 
 
 typedef struct{
-  float DCsolid;					// diffusion coefficient of trace species in solid phase
-  float DCfluid;					// diffusion coefficient of trace species in fluid phase
+  double DCsolid;					// diffusion coefficient of trace species in solid phase
+  double DCfluid;					// diffusion coefficient of trace species in fluid phase
   int MeshIncreaseX;				// Mesh refinement in x-direction
   int MeshIncreaseY;				// Mesh refinement in y-direction
-  float CLeft;						// Concentration of trace species in left boundary
-  float CRight;					// Concentration of trace species in right boundary
+  double CLeft;						// Concentration of trace species in left boundary
+  double CRight;					// Concentration of trace species in right boundary
   long int MAX_ITER;				// Max iterations
-  float ConvergeCriteria;			// Convergence Criteria
+  double ConvergeCriteria;			// Convergence Criteria
   char* inputFilename;				// Input filename
   char* outputFilename;				// Output filename
   int printCmap;					// print concentration map (true/false) flag
@@ -39,12 +39,12 @@ typedef struct{
 	int Width;
 	int Height;
 	int nChannels;
-	float porosity;
-	float gpuTime;
+	double porosity;
+	double gpuTime;
 	unsigned char *target_data;
-	float deff;
+	double deff;
 	bool PathFlag;
-	float conv;
+	double conv;
 }simulationInfo;
 
 
@@ -52,43 +52,22 @@ typedef struct{
 	int numCellsX;
 	int numCellsY;
 	int nElements;
-	float dx;
-	float dy;
+	double dx;
+	double dy;
 }meshInfo;
 
-//Data structures for a* algorithm:
-
-// generate structure to store global information about the domain
-
-typedef struct{
-	unsigned int xSize;
-	unsigned int ySize;
-	bool verbose;
-}domainInfo;
-
-// node struct will hold information on cell parent cells, f, g, and h.
-
-typedef struct{
-	int parentRow, parentCol;
-	float f,g,h;
-}node;
-
-// define pair for coords
+// define pair for coords a* algorithms
 
 typedef std::pair<int, int> coordPair;
 
-// define pair <float, pair<i,j>> for open list
-
-typedef std::pair<float, std::pair<int,int> > OpenListInfo;
-
 // GPU Jacobi-Iteration Kernel
 
-__global__ void updateX_V1(float* A, float* x, float* b, float* xNew, meshInfo mesh)
+__global__ void updateX_V1(double* A, double* x, double* b, double* xNew, meshInfo mesh)
 {
 	unsigned int myRow = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (myRow < mesh.nElements){
-		float sigma = 0;
+		double sigma = 0;
 		for(int j = 1; j<5; j++){
 			if(A[myRow*5 + j] !=0){
 				if(j == 1){
@@ -171,7 +150,7 @@ int outputSingle(options opts, meshInfo mesh, simulationInfo myImg){
   return 0;
 }
 
-int outputBatch(options opts, float* output){
+int outputBatch(options opts, double* output){
 	FILE *OUTPUT;
 
   OUTPUT = fopen(opts.outputFilename, "a+");
@@ -199,7 +178,7 @@ int readInputFile(char* FileName, options* opts){
 	std::string myText;
 
 	char tempC[1000];
-	float tempD;
+	double tempD;
 	char tempFilenames[1000];
 	std::ifstream InputFile(FileName);
 
@@ -292,7 +271,7 @@ int readImage(options opts, simulationInfo* myImg){
 	return 0;
 }
 
-float WeightedHarmonicMean(float w1, float w2, float x1, float x2){
+double WeightedHarmonicMean(double w1, double w2, double x1, double x2){
 	/*
 		WeightedHarmonicMean Function:
 		Inputs:
@@ -303,7 +282,7 @@ float WeightedHarmonicMean(float w1, float w2, float x1, float x2){
 		Output:
 			- returns H, the weighted harmonic mean between x1 and x2, using weights w1 and w2.
 	*/
-	float H = (w1 + w2)/(w1/x1 + w2/x2);
+	double H = (w1 + w2)/(w1/x1 + w2/x2);
 	return H;
 }
 
@@ -328,7 +307,7 @@ int readImageBatch(options opts, simulationInfo* myImg, char* filename){
 }
 
 
-float calcPorosity(unsigned char* imageAddress, int Width, int Height){
+double calcPorosity(unsigned char* imageAddress, int Width, int Height){
 	/*
 		calcPorosity
 		Inputs:
@@ -337,13 +316,13 @@ float calcPorosity(unsigned char* imageAddress, int Width, int Height){
 			- Height: original height from std_image
 
 		Output:
-			- porosity: float containing porosity.
+			- porosity: double containing porosity.
 
 		Function calculates porosity by counting pixels.
 	*/
 
-	float totalCells = (float)Height*Width;
-	float porosity = 0;
+	double totalCells = (double)Height*Width;
+	double porosity = 0;
 	for(int i = 0; i<Height; i++){
 		for(int j = 0; j<Width; j++){
 			if(imageAddress[i*Width + j] < 150){
@@ -355,20 +334,20 @@ float calcPorosity(unsigned char* imageAddress, int Width, int Height){
 	return porosity;
 }
 
-float Residual(int numRows, int numCols, options* o, float* cmap, float* D){
+double Residual(int numRows, int numCols, options* o, double* cmap, double* D){
 	/*
 		Function to calculate residual convergence (Conservation of energy in this problem)
 
 	*/
 
-	float dx = 1.0/numCols;
-	float dy = 1.0/numRows;
+	double dx = 1.0/numCols;
+	double dy = 1.0/numRows;
 
-	float TL = o->CLeft;
-	float TR = o->CRight;
+	double TL = o->CLeft;
+	double TR = o->CRight;
 
-	float qE, qW, qS, qN;
-	float R = 0;
+	double qE, qW, qS, qN;
+	double R = 0;
 	for(int row = 0; row<numRows; row++){
 		for(int col = 0; col<numCols; col++){
 			if(col == 0){
@@ -400,259 +379,13 @@ float Residual(int numRows, int numCols, options* o, float* cmap, float* D){
 	return R;
 }
 
-int aStarMain(unsigned int* GRID, domainInfo info){
-	/*
-		aStarMain Function
-		Inputs:
-			- unsigned int GRID: grid, at each location either a 1 or a 0.
-				1 means solid, 0 void. Those are the boundary conditions.
-			- domainInfo info: data structure with info regarding height and width of the domain
-		Output:
-			- either a one or a zero. One means there is a path, zero means there isn't.
-	*/
 
-	// Initialize both lists, open and closed as arrays
-
-	bool* closedList = (bool *)malloc(sizeof(bool)*info.xSize*info.ySize);
-
-	memset(closedList, false, sizeof(closedList));
-
-	// Declare 2D array of structure type "node"
-	// Node contains information such as parent coordinates, g, h, and f
-
-	node **nodeInfo;
-	nodeInfo = (node **)malloc(sizeof(node *)*info.ySize);
-
-	for(int i = 0; i<info.ySize; i++){
-		nodeInfo[i] = (node *)malloc(sizeof(node)*info.ySize);
-	}
-
-
-	// Initialize all paremeters
-
-	for(int i = 0; i<info.ySize; i++){
-		for(int j = 0; j<info.xSize; j++){
-			nodeInfo[i][j].f = FLT_MAX;
-			nodeInfo[i][j].g = FLT_MAX;
-			nodeInfo[i][j].h = FLT_MAX;
-			nodeInfo[i][j].parentCol = -1;
-			nodeInfo[i][j].parentRow = -1;
-		}
-	}
-
-	// Initialize parameters for all starting nodes
-
-	for(int i = 0; i<info.ySize; i++){
-		if(GRID[i*info.xSize + 0] == 0){
-			nodeInfo[i][0].f = 0.0;
-			nodeInfo[i][0].g = 0.0;
-			nodeInfo[i][0].h = 0.0;
-			nodeInfo[i][0].parentCol = 0;
-			nodeInfo[i][0].parentRow = i;
-		}
-	}
-
-	// Create open list
-
-	std::set<OpenListInfo> openList;
-
-	// Insert all starting nodes into the open list
-
-	for(int i = 0; i<info.ySize; i++){
-		openList.insert(std::make_pair(0.0, std::make_pair(i,0)));
-	}
-
-	// set destination flag to false
-
-	bool foundDest = false;
-
-	// begin loop to find path. If openList is empty, terminate the loop
-
-	while(!openList.empty()){
-		// First step is to pop the fist entry on the list
-		OpenListInfo pop = *openList.begin();
-
-		// remove from open list
-		openList.erase(openList.begin());
-
-		// Add to the closed list
-		int row = pop.second.first; // first argument of the second pair
-		int col = pop.second.second; // second argument of second pair
-		closedList[row*info.xSize + col] = true;
-
-		/*
-			Now we need to generate all 4 successors from the popped cell.
-			The successors are north, south, east, and west.
-			
-			North index = i - 1, j
-			South index = i + 1, j
-			East index =  i    , j + 1
-			West index =  i    , j - 1
-		*/
-		float gNew, hNew, fNew;
-
-		// Evaluate North
-		
-		int tempCol = col;
-		int tempRow = row;
-
-		// adjust North for periodic boundary condition
-
-		if(row == 0){
-			tempRow = info.ySize - 1;
-		} else{
-			tempRow = row - 1;
-		}
-
-		// check if we reached destination, which is the entire right boundary
-		if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
-			nodeInfo[tempRow][tempCol].parentRow = row;
-			nodeInfo[tempRow][tempCol].parentCol = col;
-			if(info.verbose == true){
-				printf("Path found.\n");
-			}
-			// Found dest, update flag and terminate
-			foundDest = true;
-			return foundDest;
-		} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
-		{
-			gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
-			hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
-			fNew = gNew + hNew;					// total cost is just h+g
-			// Check if on open list. If yes, update f,g, and h accordingly.
-			// If not, add it to open list.
-			if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
-				openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
-				nodeInfo[tempRow][tempCol].f = fNew;
-				nodeInfo[tempRow][tempCol].g = gNew;
-				nodeInfo[tempRow][tempCol].h = hNew;
-				nodeInfo[tempRow][tempCol].parentRow = row;
-				nodeInfo[tempRow][tempCol].parentCol = col;
-			}
-		}
-			
-
-		// Evaluate South
-
-		tempCol = col;
-		tempRow = row;
-
-		// Adjust for periodic BC
-
-		if(row == info.ySize - 1){
-			tempRow = 0;
-		} else{
-			tempRow = row + 1;
-		}
-
-		// check if we reached destination, which is the entire right boundary
-		if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
-			nodeInfo[tempRow][tempCol].parentRow = row;
-			nodeInfo[tempRow][tempCol].parentCol = col;
-			if(info.verbose == true){
-				printf("Path found.\n");
-			}
-			// Found dest, update flag and terminate
-			foundDest = true;
-			return foundDest;
-		} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
-		{
-			gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
-			hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
-			fNew = gNew + hNew;					// total cost is just h+g
-			// Check if on open list. If yes, update f,g, and h accordingly.
-			// If not, add it to open list.
-			if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
-				openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
-				nodeInfo[tempRow][tempCol].f = fNew;
-				nodeInfo[tempRow][tempCol].g = gNew;
-				nodeInfo[tempRow][tempCol].h = hNew;
-				nodeInfo[tempRow][tempCol].parentRow = row;
-				nodeInfo[tempRow][tempCol].parentCol = col;
-			}
-		}
-
-		// Evaluate East (if it exists)
-
-		if(col != info.xSize - 1){
-			tempRow = row;
-			tempCol = col + 1;
-
-			// check if we reached destination, which is the entire right boundary
-			if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
-				nodeInfo[tempRow][tempCol].parentRow = row;
-				nodeInfo[tempRow][tempCol].parentCol = col;
-				if(info.verbose == true){
-					printf("Path found.\n");
-				}
-				// Found dest, update flag and terminate
-				foundDest = true;
-				return foundDest;
-			} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
-			{
-				gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
-				hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
-				fNew = gNew + hNew;					// total cost is just h+g
-				// Check if on open list. If yes, update f,g, and h accordingly.
-				// If not, add it to open list.
-				if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
-					openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
-					nodeInfo[tempRow][tempCol].f = fNew;
-					nodeInfo[tempRow][tempCol].g = gNew;
-					nodeInfo[tempRow][tempCol].h = hNew;
-					nodeInfo[tempRow][tempCol].parentRow = row;
-					nodeInfo[tempRow][tempCol].parentCol = col;
-				}
-			}
-		}
-
-		// Evaluate West
-
-		if(col != 0){
-			tempRow = row;
-			tempCol = col;
-
-			// check if we reached destination, which is the entire right boundary
-			if(tempCol == info.ySize - 1 && GRID[tempRow*info.xSize + tempCol] != 1){
-				nodeInfo[tempRow][tempCol].parentRow = row;
-				nodeInfo[tempRow][tempCol].parentCol = col;
-				if(info.verbose == true){
-					printf("Path found.\n");
-				}
-				// Found dest, update flag and terminate
-				foundDest = true;
-				return foundDest;
-			} else if(closedList[tempRow*info.xSize + tempCol] == false && GRID[tempRow*info.xSize + tempCol] == 0) // check if successor is not on closed list and not a solid wall
-			{
-				gNew = nodeInfo[row][col].g + 1.0;	// cost from moving from last cell to this cell
-				hNew = (info.xSize - 1) - tempCol; // Since entire right boundary is the distance, h is just a count of the number of columns from the right.	
-				fNew = gNew + hNew;					// total cost is just h+g
-				// Check if on open list. If yes, update f,g, and h accordingly.
-				// If not, add it to open list.
-				if(nodeInfo[tempRow][tempCol].f == FLT_MAX || nodeInfo[tempRow][tempCol].f > fNew){
-					openList.insert(std::make_pair(fNew, std::make_pair(tempRow, tempCol)));
-					nodeInfo[tempRow][tempCol].f = fNew;
-					nodeInfo[tempRow][tempCol].g = gNew;
-					nodeInfo[tempRow][tempCol].h = hNew;
-					nodeInfo[tempRow][tempCol].parentRow = row;
-					nodeInfo[tempRow][tempCol].parentCol = col;
-				}
-			}
-		}
-	}
-	if(info.verbose == true){
-		printf("Failed to find a path.\n");
-	}
-	return foundDest;
-
-}
-
-int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts){
+int DiscretizeMatrix2D(double* D, double* A, double* b, meshInfo mesh, options opts){
 	/*
 		DiscretizeMatrix2D
 
 		Inputs:
-			- pointer to float array D, where local diffusion coefficients are stored
+			- pointer to double array D, where local diffusion coefficients are stored
 			- pointer to empty coefficient matrix
 			- pointer to RHS of the system of equations
 			- datastructure containing mesh information
@@ -665,10 +398,10 @@ int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts
 	*/
 
 	int index;
-	float dxw, dxe, dys, dyn;
-	float kw, ke, ks, kn;
+	double dxw, dxe, dys, dyn;
+	double kw, ke, ks, kn;
 
-	float dx, dy;
+	double dx, dy;
 	dx = mesh.dx;
 	dy = mesh.dy;
 
@@ -736,7 +469,7 @@ int DiscretizeMatrix2D(float* D, float* A, float* b, meshInfo mesh, options opts
 	return 0;
 }
 
-int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **d_Coeff, meshInfo mesh){
+int initializeGPU(double **d_x_vec, double **d_temp_x_vec, double **d_RHS, double **d_Coeff, meshInfo mesh){
 
 	// Set device, when cudaStatus is called give status of assigned device.
 	// This is important to know if we are running out of GPU space
@@ -750,28 +483,28 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
         return 0;
     }
 
-    cudaStatus = cudaMalloc((void**)&(*d_x_vec), mesh.nElements*sizeof(float));
+    cudaStatus = cudaMalloc((void**)&(*d_x_vec), mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
 		getchar();
         return 0;
     }
 
-    cudaStatus = cudaMalloc((void**)&(*d_temp_x_vec), mesh.nElements*sizeof(float));
+    cudaStatus = cudaMalloc((void**)&(*d_temp_x_vec), mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
 		getchar();
         return 0;
     }
 
-    cudaStatus = cudaMalloc((void**)&(*d_RHS), mesh.nElements*sizeof(float));
+    cudaStatus = cudaMalloc((void**)&(*d_RHS), mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
 		getchar();
         return 0;
     }
 
-    cudaStatus = cudaMalloc((void**)&(*d_Coeff), mesh.nElements*sizeof(float)*5);
+    cudaStatus = cudaMalloc((void**)&(*d_Coeff), mesh.nElements*sizeof(double)*5);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!");
 		getchar();
@@ -781,7 +514,7 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
     // Set GPU buffers (initializing matrices to 0)
 
      // Memset GPU buffers
-    cudaStatus = cudaMemset((*d_x_vec),0, mesh.nElements*sizeof(float));
+    cudaStatus = cudaMemset((*d_x_vec),0, mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemset failed!");
 		getchar();
@@ -789,7 +522,7 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
     }
 
 	// Memset GPU buffers
-    cudaStatus = cudaMemset((*d_temp_x_vec),0, mesh.nElements*sizeof(float));
+    cudaStatus = cudaMemset((*d_temp_x_vec),0, mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemset failed!");
 		getchar();
@@ -797,7 +530,7 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
     }
 
      // Memset GPU buffers
-    cudaStatus = cudaMemset((*d_RHS),0, mesh.nElements*sizeof(float));
+    cudaStatus = cudaMemset((*d_RHS),0, mesh.nElements*sizeof(double));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemset failed!");
 		getchar();
@@ -805,7 +538,7 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
     }
 
 	// Memset GPU buffers
-    cudaStatus = cudaMemset((*d_Coeff),0, 5*mesh.nElements*sizeof(float));		// coefficient matrix has the 5 main diagonals for all elements
+    cudaStatus = cudaMemset((*d_Coeff),0, 5*mesh.nElements*sizeof(double));		// coefficient matrix has the 5 main diagonals for all elements
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemset failed!");
 		getchar();
@@ -815,7 +548,7 @@ int initializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **
     return 1;
 }
 
-void unInitializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float **d_Coeff)
+void unInitializeGPU(double **d_x_vec, double **d_temp_x_vec, double **d_RHS, double **d_Coeff)
 {
 	cudaError_t cudaStatus;
 
@@ -855,19 +588,19 @@ void unInitializeGPU(float **d_x_vec, float **d_temp_x_vec, float **d_RHS, float
     }
 }
 
-int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options opts,
-	float *d_x_vec, float *d_temp_x_vec, float *d_Coeff, float *d_RHS, float *MFL, float *MFR, float *D, meshInfo mesh, simulationInfo* myImg)
+int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, options opts,
+	double *d_x_vec, double *d_temp_x_vec, double *d_Coeff, double *d_RHS, double *MFL, double *MFR, double *D, meshInfo mesh, simulationInfo* myImg)
 {
 
 	int iterCount = 0;
-	float Res = 1;
+	double Res = 1;
 	int threads_per_block = 160;
 	int numBlocks = mesh.nElements/threads_per_block + 1;
-	float deffNew = 1;
+	double deffNew = 1;
 	int iterToCheck = 1000;
-	float Q1,Q2;
-	float qAvg = 0;
-	float dx,dy;
+	double Q1,Q2;
+	double qAvg = 0;
+	double dx,dy;
 	int numRows = mesh.numCellsY;
 	int numCols = mesh.numCellsX;
 	const char *str = (char*) malloc(1024); // To store error string
@@ -886,19 +619,19 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 
 	//Copy arrays into GPU memory
 
-	cudaError_t cudaStatus = cudaMemcpy(d_temp_x_vec, temp_x_vec, sizeof(float) * nRows, cudaMemcpyHostToDevice);
+	cudaError_t cudaStatus = cudaMemcpy(d_temp_x_vec, temp_x_vec, sizeof(double) * nRows, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "temp_x_vec cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
 	}
-	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(float)*nRows, cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(double)*nRows, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "d_RHS cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
 		fprintf(stderr, "CUDA Error!:: %s\n", str);
 	}
-	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(float)*nRows*nCols, cudaMemcpyHostToDevice);
+	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(double)*nRows*nCols, cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "d_Coeff cudaMemcpy failed!");
 		str = cudaGetErrorString(cudaStatus);
@@ -925,7 +658,7 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 		// Convergence related material
 
 		if (iterCount % iterToCheck == 0){
-			cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(float) * nRows, cudaMemcpyDeviceToHost);
+			cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToHost);
 			if (cudaStatus != cudaSuccess) {
 				fprintf(stderr, "x_vec cudaMemcpy failed!");
 				str = cudaGetErrorString(cudaStatus);
@@ -965,7 +698,7 @@ int JacobiGPU(float *arr, float *sol, float *x_vec, float *temp_x_vec, options o
 	float elapsedTime;
 	cudaEventElapsedTime(&elapsedTime, start, stop);
 
-	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(float)*nRows, cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double)*nRows, cudaMemcpyDeviceToHost);
 
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "x_vec cudaMemcpy failed!");
@@ -1035,18 +768,12 @@ int SingleSim(options opts){
 
 	myImg.PathFlag = false;
 
-	domainInfo info;
-
-	info.xSize = myImg.Width;
-	info.ySize = myImg.Height;
-	info.verbose = opts.verbose;
-
 	// Declare search boundaries for the domain
 
-	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*info.xSize*info.ySize);
+	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
 
-	for(int i = 0; i<info.ySize; i++){
-		for(int j = 0; j<info.xSize; j++){
+	for(int i = 0; i<mesh.numCellsY; i++){
+		for(int j = 0; j<mesh.numCellsX; j++){
 			if(myImg.target_data[i*myImg.Width + j] > 150){
 				Grid[i*myImg.Width + j] = 1;
 			} else{
@@ -1057,7 +784,7 @@ int SingleSim(options opts){
 
 	// Search path
 
-	myImg.PathFlag = aStarMain(Grid, info);
+	// myImg.PathFlag =
 
 	free(Grid);
 
@@ -1065,26 +792,26 @@ int SingleSim(options opts){
 
 	// Diffusion coefficients
 
-	float DCF_Max = opts.DCfluid;
-	float DCF = 10.0f;
-	float DCS = opts.DCsolid;
+	double DCF_Max = opts.DCfluid;
+	double DCF = 10.0f;
+	double DCS = opts.DCsolid;
 
 	// We will use an artificial scaling of the diffusion coefficient to converge to the correct solution
 
 	// Declare useful arrays
-	float *D = (float*)malloc(sizeof(float)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
-	float *MFL = (float*)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the left boundary
-	float *MFR = (float*)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the right boundary
+	double *D = (double*)malloc(sizeof(double)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+	double *MFL = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the left boundary
+	double *MFR = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the right boundary
 
-	float *CoeffMatrix = (float *)malloc(sizeof(float)*mesh.nElements*5);					// array will be used to store our coefficient matrix
-	float *RHS = (float *)malloc(sizeof(float)*mesh.nElements);										// array used to store RHS of the system of equations
-	float *ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
-	float *temp_ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+	double *CoeffMatrix = (double *)malloc(sizeof(double)*mesh.nElements*5);					// array will be used to store our coefficient matrix
+	double *RHS = (double *)malloc(sizeof(double)*mesh.nElements);										// array used to store RHS of the system of equations
+	double *ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
+	double *temp_ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
 
 	// Initialize the concentration map with a linear gradient between the two boundaries
 	for(int i = 0; i<mesh.numCellsY; i++){
 		for(int j = 0; j<mesh.numCellsX; j++){
-			ConcentrationDist[i*mesh.numCellsX + j] = (float)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+			ConcentrationDist[i*mesh.numCellsX + j] = (double)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
 		}
 	}
 
@@ -1094,11 +821,11 @@ int SingleSim(options opts){
 
 	// Declare GPU arrays
 
-	float *d_x_vec = NULL;
-	float *d_temp_x_vec = NULL;
+	double *d_x_vec = NULL;
+	double *d_temp_x_vec = NULL;
 	
-	float *d_Coeff = NULL;
-	float *d_RHS = NULL;
+	double *d_Coeff = NULL;
+	double *d_RHS = NULL;
 
 	// Initialize the GPU arrays
 
@@ -1211,7 +938,7 @@ int BatchSim(options opts){
 	// Create array to store all outputs
 	// In order: imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
-	float *output = (float *)malloc(sizeof(float)*opts.NumImg*9);
+	double *output = (double *)malloc(sizeof(double)*opts.NumImg*9);
 
 	while(imageNum < opts.NumImg){
 		// Define data structures
@@ -1263,18 +990,12 @@ int BatchSim(options opts){
 
 		myImg.PathFlag = false;
 
-		domainInfo info;
-
-		info.xSize = myImg.Width;
-		info.ySize = myImg.Height;
-		info.verbose = opts.verbose;
-
 		// Declare search boundaries for the domain
 
-		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*info.xSize*info.ySize);
+		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
 
-		for(int i = 0; i<info.ySize; i++){
-			for(int j = 0; j<info.xSize; j++){
+		for(int i = 0; i<mesh.numCellsY; i++){
+			for(int j = 0; j<mesh.numCellsX; j++){
 				if(myImg.target_data[i*myImg.Width + j] > 150){
 					Grid[i*myImg.Width + j] = 1;
 				} else{
@@ -1285,7 +1006,7 @@ int BatchSim(options opts){
 
 		// Search path
 
-		myImg.PathFlag = aStarMain(Grid, info);
+		// myImg.PathFlag =
 
 		free(Grid);
 
@@ -1293,25 +1014,25 @@ int BatchSim(options opts){
 
 		// Diffusion coefficients
 
-		float DCF = opts.DCfluid;
-		float DCS = opts.DCsolid;
+		double DCF = opts.DCfluid;
+		double DCS = opts.DCsolid;
 
 		// We will use an artificial scaling of the diffusion coefficient to converge to the correct solution
 
 		// Declare useful arrays
-		float *D = (float *)malloc(sizeof(float)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
-		float *MFL = (float *)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the left boundary
-		float *MFR = (float *)malloc(sizeof(float)*mesh.numCellsY);										// mass flux in the right boundary
+		double *D = (double *)malloc(sizeof(double)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+		double *MFL = (double *)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the left boundary
+		double *MFR = (double *)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the right boundary
 
-		float *CoeffMatrix = (float *)malloc(sizeof(float)*mesh.nElements*5);					// array will be used to store our coefficient matrix
-		float *RHS = (float *)malloc(sizeof(float)*mesh.nElements);										// array used to store RHS of the system of equations
-		float *ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
-		float *temp_ConcentrationDist = (float *)malloc(sizeof(float)*mesh.nElements);			// array used to store the solution to the system of equations
+		double *CoeffMatrix = (double *)malloc(sizeof(double)*mesh.nElements*5);					// array will be used to store our coefficient matrix
+		double *RHS = (double *)malloc(sizeof(double)*mesh.nElements);										// array used to store RHS of the system of equations
+		double *ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
+		double *temp_ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
 
 		// Initialize the concentration map with a linear gradient between the two boundaries
 		for(int i = 0; i<mesh.numCellsY; i++){
 			for(int j = 0; j<mesh.numCellsX; j++){
-				ConcentrationDist[i*mesh.numCellsX + j] = (float)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+				ConcentrationDist[i*mesh.numCellsX + j] = (double)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
 			}
 		}
 
@@ -1321,11 +1042,11 @@ int BatchSim(options opts){
 
 		// Declare GPU arrays
 
-		float *d_x_vec = NULL;
-		float *d_temp_x_vec = NULL;
+		double *d_x_vec = NULL;
+		double *d_temp_x_vec = NULL;
 		
-		float *d_Coeff = NULL;
-		float *d_RHS = NULL;
+		double *d_Coeff = NULL;
+		double *d_RHS = NULL;
 
 		// Initialize the GPU arrays
 
@@ -1380,9 +1101,9 @@ int BatchSim(options opts){
 		// save output
 		// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
-		output[imageNum*9 + 0] = (float) imageNum;
+		output[imageNum*9 + 0] = (double) imageNum;
 		output[imageNum*9 + 1] = myImg.porosity;
-		output[imageNum*9 + 2] = (float) myImg.PathFlag;
+		output[imageNum*9 + 2] = (double) myImg.PathFlag;
 		output[imageNum*9 + 3] = myImg.deff;
 		output[imageNum*9 + 4] = myImg.gpuTime/1000;
 		output[imageNum*9 + 5] = mesh.nElements;

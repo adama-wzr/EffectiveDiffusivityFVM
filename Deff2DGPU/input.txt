@@ -1,13 +1,15 @@
 Input File:
-Ds: 1
-Df: 10000
+Phases: 3
+Ds: 0
+Df: 1
+Dg: 
 MeshAmpX: 1
 MeshAmpY: 1
 InputName: 00000.jpg
 CR: 1
 CL: 0
 OutputName: batchTest.csv
-printCMap: 0
+printCMap: 1
 CMapName: CMAP_00001.csv
 Convergence: 0.00001
 MaxIter: 500000
