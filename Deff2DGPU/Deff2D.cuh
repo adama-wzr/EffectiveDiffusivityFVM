@@ -15,27 +15,29 @@
 #include "cuda_runtime.h"
 #include "cuda.h"
 
+typedef struct
+{
+	double DCsolid;			 // diffusion coefficient of trace species in solid phase
+	double DCfluid;			 // diffusion coefficient of trace species in fluid phase
+	double DCgas;			 // diffusion coefficient of trace species in gas phase
+	int MeshIncreaseX;		 // Mesh refinement in x-direction
+	int MeshIncreaseY;		 // Mesh refinement in y-direction
+	double CLeft;			 // Concentration of trace species in left boundary
+	double CRight;			 // Concentration of trace species in right boundary
+	long int MAX_ITER;		 // Max iterations
+	double ConvergeCriteria; // Convergence Criteria
+	char *inputFilename;	 // Input filename
+	char *outputFilename;	 // Output filename
+	int printCmap;			 // print concentration map (true/false) flag
+	char *CMapName;			 // Concentration map name
+	int verbose;			 // verbose flag
+	int BatchFlag;			 // Batch flag
+	int NumImg;				 // Number of images in the batch
+	int nPhase;
+} options;
 
-typedef struct{
-  double DCsolid;					// diffusion coefficient of trace species in solid phase
-  double DCfluid;					// diffusion coefficient of trace species in fluid phase
-  int MeshIncreaseX;				// Mesh refinement in x-direction
-  int MeshIncreaseY;				// Mesh refinement in y-direction
-  double CLeft;						// Concentration of trace species in left boundary
-  double CRight;					// Concentration of trace species in right boundary
-  long int MAX_ITER;				// Max iterations
-  double ConvergeCriteria;			// Convergence Criteria
-  char* inputFilename;				// Input filename
-  char* outputFilename;				// Output filename
-  int printCmap;					// print concentration map (true/false) flag
-  char* CMapName;					// Concentration map name
-  int verbose;						// verbose flag
-  int BatchFlag;					// Batch flag
-  int NumImg;						// Number of images in the batch
-}options;
-
-
-typedef struct{
+typedef struct
+{
 	int Width;
 	int Height;
 	int nChannels;
@@ -45,16 +47,16 @@ typedef struct{
 	double deff;
 	bool PathFlag;
 	double conv;
-}simulationInfo;
+} simulationInfo;
 
-
-typedef struct{
+typedef struct
+{
 	int numCellsX;
 	int numCellsY;
 	int nElements;
 	double dx;
 	double dy;
-}meshInfo;
+} meshInfo;
 
 // define pair for coords a* algorithms
 
@@ -94,8 +96,10 @@ int printOptions(options* opts){
 		printf("--------------------------------------\n\n");
 		printf("Current selected options:\n\n");
 		printf("--------------------------------------\n");
-		printf("DC Fluid = %.2f\n", opts->DCfluid);
-		printf("DC Solid = %.2f\n", opts->DCsolid);
+		printf("Number of Phases = %d\n", opts->nPhase);
+		printf("DC Fluid = %1.3e\n", opts->DCfluid);
+		printf("DC Solid = %1.3e\n", opts->DCsolid);
+		printf("DC Gas = %1.3e\n", opts->DCgas);
 		printf("Concentration Left = %.2f\n", opts->CLeft);
 		printf("Concentration Right = %.2f\n", opts->CRight);
 		printf("Mesh Amp. X = %d\n", opts->MeshIncreaseX);
@@ -114,8 +118,10 @@ int printOptions(options* opts){
 	} else if(opts->BatchFlag == 1){
 		printf("--------------------------------------\n\n");
 		printf("Running Image Batch:\n\n");
-		printf("DC Fluid = %.2f\n", opts->DCfluid);
-		printf("DC Solid = %.2f\n", opts->DCsolid);
+		printf("Number of Phases = %d\n", opts->nPhase);
+		printf("DC Fluid = %1.3e\n", opts->DCfluid);
+		printf("DC Solid = %1.3e\n", opts->DCsolid);
+		printf("DC Gas = %1.3e\n", opts->DCgas);
 		printf("Concentration Left = %.2f\n", opts->CLeft);
 		printf("Concentration Right = %.2f\n", opts->CRight);
 		printf("Mesh Amp. X = %d\n", opts->MeshIncreaseX);
@@ -144,9 +150,9 @@ int outputSingle(options opts, meshInfo mesh, simulationInfo myImg)
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
-	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
-	fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f,%f,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
-			opts.DCsolid, opts.DCfluid);
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
+	fprintf(OUTPUT, "%s,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
+			opts.DCsolid, opts.DCfluid, opts.DCgas);
 	fclose(OUTPUT);
 	return 0;
 }
@@ -156,11 +162,11 @@ int outputBatch(options opts, double *output)
 	FILE *OUTPUT;
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
-	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
 	for (int i = 0; i < opts.NumImg; i++)
 	{
-		fprintf(OUTPUT, "%d,%f,%d,%f,%f,%d,%f,%f,%f\n", i, output[i * 9 + 1], (int)output[i * 9 + 2], output[i * 9 + 3], output[i * 9 + 4], (int)output[i * 9 + 5], output[i * 9 + 6],
-				output[i * 9 + 7], output[i * 9 + 8]);
+		fprintf(OUTPUT, "%d,%f,%d,%1.3e,%f,%d,%1.3e,%1.3,%1.3e,%1.3e\n", i, output[i * 9 + 1], (int)output[i * 9 + 2], output[i * 9 + 3], output[i * 9 + 4], (int)output[i * 9 + 5], output[i * 9 + 6],
+				output[i * 9 + 7], output[i * 9 + 8], opts.DCgas);
 	}
 	fclose(OUTPUT);
 	return 0;
@@ -197,6 +203,9 @@ int readInputFile(char* FileName, options* opts){
 	 		opts->DCsolid = tempD;
 	 	}else if(strcmp(tempC, "Df:") == 0){
 	 		opts->DCfluid = tempD;
+
+		}else if(strcmp(tempC, "Dg:") == 0){
+	 		opts->DCgas = tempD;
 
 	 	}else if(strcmp(tempC, "MeshAmpX:") == 0){
 	 		opts->MeshIncreaseX = (int)tempD;
@@ -238,6 +247,8 @@ int readInputFile(char* FileName, options* opts){
 	 		opts->BatchFlag = (int)tempD;
 	 	} else if(strcmp(tempC, "NumImages:") == 0){
 	 		opts->NumImg = (int)tempD;
+	 	} else if(strcmp(tempC, "Phases:") == 0){
+	 		opts->nPhase = (int)tempD;
 	 	}
 	}
 	
@@ -406,7 +417,7 @@ void createCMAP(double *CMap, options *opts, meshInfo *mesh)
 	fprintf(OUTPUT, "X,Y,C\n");
 	for(int i = 0; i<mesh->numCellsY; i++){
 		for(int j = 0; j<mesh->numCellsX; j++){
-			fprintf(OUTPUT,"%d,%d,%lf\n", j, i, CMap[i*mesh->numCellsX + j]);
+			fprintf(OUTPUT,"%d,%d,%1.3e\n", j, i, CMap[i*mesh->numCellsX + j]);
 		}
 	}
 	fclose(OUTPUT);
