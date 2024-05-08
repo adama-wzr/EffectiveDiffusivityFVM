@@ -64,7 +64,34 @@ typedef struct
 
 typedef std::pair<int, int> coordPair;
 
-// GPU Jacobi-Iteration Kernel
+// GPU Jacobi-Iteration Standard Over-Relaxation (SOR) Kernel
+
+__global__ void updateX_SOR(double* A, double* x, double* b, double* xNew, meshInfo mesh)
+{
+	unsigned int myRow = blockIdx.x * blockDim.x + threadIdx.x;
+	double w = 2.0/3.0;
+
+	if (myRow < mesh.nElements){
+		double sigma = 0;
+		for(int j = 1; j<5; j++){
+			if(A[myRow*5 + j] !=0){
+				if(j == 1){
+					sigma += A[myRow*5 + j]*x[myRow - 1];
+				} else if(j == 2){
+					sigma += A[myRow*5 + j]*x[myRow + 1];
+				} else if(j == 3){
+					sigma += A[myRow*5 + j]*x[myRow + mesh.numCellsX];
+				} else if(j == 4){
+					sigma += A[myRow*5 + j]*x[myRow - mesh.numCellsX];
+				}
+			}
+		}
+		xNew[myRow] = (1.0-w)*x[myRow] +  w/A[myRow*5 + 0] * (b[myRow] - sigma);
+	}
+		
+}
+
+// Jacobi-Iteration GPU Kernel
 
 __global__ void updateX_V1(double* A, double* x, double* b, double* xNew, meshInfo mesh)
 {
@@ -89,6 +116,7 @@ __global__ void updateX_V1(double* A, double* x, double* b, double* xNew, meshIn
 	}
 		
 }
+
 
 int printOptions(options* opts){
 	/*
@@ -967,7 +995,9 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 	int threads_per_block = 160;
 	int numBlocks = mesh.nElements / threads_per_block + 1;
 	double deffNew = 1;
-	int iterToCheck = 1000;
+	double deffOld = 5;
+	double percentChange = 100.0;
+	int iterToCheck = 10000;
 	double Q1, Q2;
 	double qAvg = 0;
 	double dx, dy;
@@ -1019,15 +1049,14 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 
 	cudaEventRecord(start, 0);
 
-	while (iterCount < opts.MAX_ITER && opts.ConvergeCriteria < Res)
+	while (iterCount < opts.MAX_ITER && opts.ConvergeCriteria < fabs(percentChange))
 	{
 		// Call Kernel to Calculate new x-vector
 
-		updateX_V1<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
+		// updateX_V1<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
+		updateX_SOR<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
 
-		// update x vector
-
-		d_temp_x_vec = d_x_vec;
+		cudaDeviceSynchronize();
 
 		// Convergence related material
 
@@ -1053,17 +1082,26 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 			Q2 = Q2;
 			qAvg = (Q1 + Q2) / 2;
 			deffNew = qAvg / ((opts.CRight - opts.CLeft));
-			Res = Residual(numRows, numCols, &opts, x_vec, D);
+			percentChange = (deffOld - deffNew)/(deffOld);
+			// Res = Residual(numRows, numCols, &opts, x_vec, D);
 			if (opts.verbose == 1 && opts.BatchFlag == 0)
 			{
-				printf("Iteration = %d, Deff = %2.3f, Residual = %1.7f\n", iterCount, deffNew / opts.DCfluid, Res);
+				// printf("Iteration = %d, Deff = %1.3e, Residual = %1.3e, Deff Change = %2.3f\n", iterCount, deffNew / opts.DCfluid, Res);
+				printf("Iteration = %d, Deff = %1.3e, Deff Change = %1.3e\n", iterCount, deffNew / opts.DCfluid, percentChange);
 			}
+			deffOld = deffNew;
+			// myImg->conv = Res;
+			myImg->conv = percentChange;
+		}
 
-			if (Res < 0.001)
-			{
-				iterToCheck = 1000;
-			}
-			myImg->conv = Res;
+		// update x vector
+		// d_temp_x_vec = d_x_vec;
+
+		cudaStatus = cudaMemcpy(d_temp_x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "d_temp_x_vec cudaMemcpy failed!");
+			str = cudaGetErrorString(cudaStatus);
+			fprintf(stderr, "CUDA Error!:: %s\n", str);
 		}
 
 		// Update iteration count

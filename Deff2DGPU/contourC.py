@@ -24,8 +24,6 @@ raw_data = df1[["X","Y","C"]].to_numpy()
 C = raw_data[:,2]
 C = np.reshape(C, [ySize, xSize])
 
-print(C)
-
 
 # Post-Process C, add a mask where C = 0 (solid)
 
