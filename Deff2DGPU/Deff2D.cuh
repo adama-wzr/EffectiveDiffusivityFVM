@@ -42,6 +42,8 @@ typedef struct
 	int Height;
 	int nChannels;
 	double porosity;
+	double SVF;
+	double LVF;
 	double gpuTime;
 	unsigned char *target_data;
 	double deff;
@@ -164,8 +166,8 @@ int outputSingle3Phase(options opts, meshInfo mesh, simulationInfo myImg)
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
-	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
-	fprintf(OUTPUT, "%s,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
+	fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
+	fprintf(OUTPUT, "%s,%f,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.SVF, myImg.LVF, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
 			opts.DCsolid, opts.DCfluid, opts.DCgas);
 	fclose(OUTPUT);
 	return 0;
@@ -376,6 +378,47 @@ double calcPorosity(unsigned char* imageAddress, int Width, int Height){
 
 	return porosity;
 }
+
+
+double calcFracts3D(simulationInfo* simInfo, double* D , meshInfo* mesh, options* opts){
+	/*
+		calcPorosity
+		Inputs:
+			- simInfor: pointer to struct containing simulation information
+			- D: pointer to array containing local diffusion coefficients.
+			- mesh: pointer to struct containing mesh information.
+			- opts: pointer to user entered options struct.
+
+		Output:
+			- None
+
+		Function calculates solid volume fraction (SVF) and liquid volume fraction (LVF).
+		The results are stored in the simInfo struct.
+	*/
+
+	double totalCells = mesh->nElements;
+	double SVF = 0;
+	double LVF = 0;
+	int Height, Width;
+	Height = mesh->numCellsY;
+	Width = mesh->numCellsX;
+
+	for(int i = 0; i<Height; i++){
+		for(int j = 0; j<Width; j++){
+			if(D[i*Width + j] == opts->DCsolid){
+				SVF += 1.0/totalCells;
+			}else if(D[i*Width + j] ==  opts->DCfluid){
+				LVF += 1.0/totalCells;
+			}
+		}
+	}
+
+	simInfo->SVF = SVF;
+	simInfo->LVF = LVF;
+
+	return 0;
+}
+
 
 double Residual(int numRows, int numCols, options* o, double* cmap, double* D){
 	/*
@@ -1188,6 +1231,10 @@ int SingleSim3Phase(options opts){
 		}
 	}
 
+	// Calculate phase fractions
+
+	calcFracts3D(&myImg, D , &mesh, &opts);
+
 	// Now that we have all pieces, generate the coefficient matrix
 
 	DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
@@ -1213,7 +1260,7 @@ int SingleSim3Phase(options opts){
 
 	// create output file 
 
-	outputSingle(opts, mesh, myImg);
+	outputSingle3Phase(opts, mesh, myImg);
 
 	// Create Concentration Map
 

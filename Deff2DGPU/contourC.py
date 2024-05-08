@@ -61,7 +61,7 @@ ax1.axes.set_aspect('equal')
 
 # Second axis is Concentration contour
 
-CS2 = ax2.contourf(Xp, Yp, C, 40, cmap=plt.cm.viridis)
+CS2 = ax2.contourf(Xp, Yp, C, 40, cmap=plt.cm.inferno)
 cbar2 = fig1.colorbar(CS2, ax=ax2)
 ax2.set_title("Concentration Contour")
 ax2.set_xlabel("x")
