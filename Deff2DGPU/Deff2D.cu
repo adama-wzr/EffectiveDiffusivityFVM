@@ -37,7 +37,7 @@ int main(void){
 		}
 		else if (opts.BatchFlag == 1)
 		{
-			BatchSim(opts);
+			BatchSim3Phase(opts);
 		}
 		else
 		{
