@@ -150,6 +150,20 @@ int outputSingle(options opts, meshInfo mesh, simulationInfo myImg)
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+	fprintf(OUTPUT, "%s,%f,%d,%f,%f,%d,%f,%f,%f\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
+			opts.DCsolid, opts.DCfluid);
+	fclose(OUTPUT);
+	return 0;
+}
+
+
+int outputSingle3Phase(options opts, meshInfo mesh, simulationInfo myImg)
+{
+	FILE *OUTPUT;
+	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
+
+	OUTPUT = fopen(opts.outputFilename, "a+");
 	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
 	fprintf(OUTPUT, "%s,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.porosity, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
 			opts.DCsolid, opts.DCfluid, opts.DCgas);
@@ -158,6 +172,21 @@ int outputSingle(options opts, meshInfo mesh, simulationInfo myImg)
 }
 
 int outputBatch(options opts, double *output)
+{
+	FILE *OUTPUT;
+
+	OUTPUT = fopen(opts.outputFilename, "a+");
+	fprintf(OUTPUT, "imgNum,porosity,PathFlag,Deff,Time,nElements,converge,ds,df\n");
+	for (int i = 0; i < opts.NumImg; i++)
+	{
+		fprintf(OUTPUT, "%d,%f,%d,%f,%f,%d,%f,%f,%f\n", i, output[i * 9 + 1], (int)output[i * 9 + 2], output[i * 9 + 3], output[i * 9 + 4], (int)output[i * 9 + 5], output[i * 9 + 6],
+				output[i * 9 + 7], output[i * 9 + 8]);
+	}
+	fclose(OUTPUT);
+	return 0;
+}
+
+int outputBatch3Phase(options opts, double *output)
 {
 	FILE *OUTPUT;
 
