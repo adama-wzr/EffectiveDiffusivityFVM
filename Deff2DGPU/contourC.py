@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
+plt.rcParams["font.family"] = "Times New Roman"
+
 # simulation properties
 
 xSize = 1002
