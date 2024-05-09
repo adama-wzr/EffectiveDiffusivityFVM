@@ -986,7 +986,8 @@ void unInitializeGPU(double **d_x_vec, double **d_temp_x_vec, double **d_RHS, do
     }
 }
 
-int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, options opts,
+
+int JacobiGPUPreCond(double *arr, double *sol, double *x_vec, double *temp_x_vec, options opts,
 			  double *d_x_vec, double *d_temp_x_vec, double *d_Coeff, double *d_RHS, double *MFL, double *MFR, double *D, meshInfo mesh, simulationInfo *myImg)
 {
 
@@ -1090,6 +1091,152 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 				printf("Iteration = %d, Deff = %1.3e, Deff Change = %1.3e\n", iterCount, deffNew / opts.DCfluid, percentChange);
 			}
 			deffOld = deffNew;
+		}
+
+		// update x vector
+		// d_temp_x_vec = d_x_vec;
+
+		cudaStatus = cudaMemcpy(d_temp_x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToDevice);
+		if (cudaStatus != cudaSuccess) {
+			fprintf(stderr, "d_temp_x_vec cudaMemcpy failed!");
+			str = cudaGetErrorString(cudaStatus);
+			fprintf(stderr, "CUDA Error!:: %s\n", str);
+		}
+
+		// Update iteration count
+		iterCount++;
+	}
+
+	cudaEventRecord(stop, 0);
+	cudaEventSynchronize(stop);
+
+	float elapsedTime;
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+
+	cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToHost);
+
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "x_vec cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+
+	return iterCount;
+}
+
+
+int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, options opts,
+			  double *d_x_vec, double *d_temp_x_vec, double *d_Coeff, double *d_RHS, double *MFL, double *MFR, double *D, meshInfo mesh, simulationInfo *myImg)
+{
+
+	int iterCount = 0;
+	double Res = 1;
+	int threads_per_block = 160;
+	int numBlocks = mesh.nElements / threads_per_block + 1;
+	double deffNew = 1;
+	double deffOld = 5;
+	double percentChange = 100.0;
+	int iterToCheck = 10000;
+	double Q1, Q2;
+	double qAvg = 0;
+	double dx, dy;
+	int numRows = mesh.numCellsY;
+	int numCols = mesh.numCellsX;
+	const char *str = (char *)malloc(1024); // To store error string
+
+	dx = mesh.dx;
+	dy = mesh.dy;
+
+	int nRows = mesh.nElements; // number of rows in the coefficient matrix
+	int nCols = 5;				// number of cols in the coefficient matrix
+
+	// Initialize temp_x_vec
+
+	for (int i = 0; i < nRows; i++)
+	{
+		temp_x_vec[i] = x_vec[i];
+	}
+
+	FILE *OUT;
+
+	OUT = fopen("ConvData.csv", "w");
+
+	fprintf(OUT, "iter,Deff,R\n");
+
+	// Copy arrays into GPU memory
+
+	cudaError_t cudaStatus = cudaMemcpy(d_temp_x_vec, temp_x_vec, sizeof(double) * nRows, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "temp_x_vec cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+	cudaStatus = cudaMemcpy(d_RHS, sol, sizeof(double) * nRows, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "d_RHS cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+	cudaStatus = cudaMemcpy(d_Coeff, arr, sizeof(double) * nRows * nCols, cudaMemcpyHostToDevice);
+	if (cudaStatus != cudaSuccess)
+	{
+		fprintf(stderr, "d_Coeff cudaMemcpy failed!");
+		str = cudaGetErrorString(cudaStatus);
+		fprintf(stderr, "CUDA Error!:: %s\n", str);
+	}
+
+	// Declare event to get time
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start, 0);
+
+	while (iterCount < opts.MAX_ITER && opts.ConvergeCriteria < fabs(percentChange))
+	{
+		// Call Kernel to Calculate new x-vector
+
+		// updateX_V1<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
+		updateX_SOR<<<numBlocks, threads_per_block>>>(d_Coeff, d_temp_x_vec, d_RHS, d_x_vec, mesh);
+
+		cudaDeviceSynchronize();
+
+		// Convergence related material
+
+		if (iterCount % iterToCheck == 0)
+		{
+			cudaStatus = cudaMemcpy(x_vec, d_x_vec, sizeof(double) * nRows, cudaMemcpyDeviceToHost);
+			if (cudaStatus != cudaSuccess)
+			{
+				fprintf(stderr, "x_vec cudaMemcpy failed!");
+				str = cudaGetErrorString(cudaStatus);
+				fprintf(stderr, "CUDA Error!:: %s\n", str);
+			}
+			Q1 = 0;
+			Q2 = 0;
+			for (int j = 0; j < numRows; j++)
+			{
+				MFL[j] = D[j * numCols] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
+				MFR[j] = D[(j + 1) * numCols - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
+				Q1 += MFL[j];
+				Q2 += MFR[j];
+			}
+			Q1 = Q1;
+			Q2 = Q2;
+			qAvg = (Q1 + Q2) / 2;
+			deffNew = qAvg / ((opts.CRight - opts.CLeft));
+			percentChange = (deffOld - deffNew)/(deffOld);
+			// Res = Residual(numRows, numCols, &opts, x_vec, D);
+			if (opts.verbose == 1 && opts.BatchFlag == 0)
+			{
+				// printf("Iteration = %d, Deff = %1.3e, Residual = %1.3e, Deff Change = %2.3f\n", iterCount, deffNew / opts.DCfluid, Res);
+				printf("Iteration = %d, Deff = %1.3e, Deff Change = %1.3e\n", iterCount, deffNew / opts.DCfluid, percentChange);
+				fprintf(OUT,"%d,%1.3e,%1.3e\n",iterCount, deffNew, percentChange);
+			}
+			deffOld = deffNew;
 			// myImg->conv = Res;
 			myImg->conv = percentChange;
 		}
@@ -1107,6 +1254,8 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 		// Update iteration count
 		iterCount++;
 	}
+
+	fclose(OUT);
 
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
@@ -1248,38 +1397,158 @@ int SingleSim3Phase(options opts){
 
 	*/
 
+	bool preCond = true;
 
-	for(int i = 0; i<mesh.numCellsY; i++){
-		MFL[i] = 0;
-		MFR[i] = 0;
-		for(int j = 0; j<mesh.numCellsX; j++){
-			int targetIndexRow = i/opts.MeshIncreaseY;
-			int targetIndexCol = j/opts.MeshIncreaseX;
-			if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] > 200){
-				D[i*mesh.numCellsX + j] = DCS;
-			} else if(myImg.target_data[targetIndexRow*myImg.Width + targetIndexCol] < 50){
-				D[i*mesh.numCellsX + j] = DCG;
-			} else{
-				D[i*mesh.numCellsX + j] = DCF;
+	if (preCond == false)
+	{
+		// No preconditioning necessary, proceed normally
+		for (int i = 0; i < mesh.numCellsY; i++)
+		{
+			MFL[i] = 0;
+			MFR[i] = 0;
+			for (int j = 0; j < mesh.numCellsX; j++)
+			{
+				int targetIndexRow = i / opts.MeshIncreaseY;
+				int targetIndexCol = j / opts.MeshIncreaseX;
+				if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+				{
+					D[i * mesh.numCellsX + j] = DCS;
+				}
+				else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+				{
+					D[i * mesh.numCellsX + j] = DCG;
+				}
+				else
+				{
+					D[i * mesh.numCellsX + j] = DCF;
+				}
 			}
 		}
+
+		// Calculate phase fractions
+
+		calcFracts3D(&myImg, D, &mesh, &opts);
+
+		// Now that we have all pieces, generate the coefficient matrix
+
+		DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+		// Solve with GPU
+		int iter_taken = 0;
+		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+							   d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+		if (opts.verbose == 1)
+		{
+			printf("Iterations taken = %d\n", iter_taken);
+		}
 	}
+	else
+	{
+		// Pre-condition, then solve
+		double DCG_Temp = 10;
+		int preCondStage = 1;
 
-	// Calculate phase fractions
+		// save original settings
+		double originalTol = opts.ConvergeCriteria;
+		double originalMaxIter = opts.MAX_ITER;
 
-	calcFracts3D(&myImg, D , &mesh, &opts);
+		// Decrease the strictness of convergence for the pre-conditioner
 
-	// Now that we have all pieces, generate the coefficient matrix
+		opts.ConvergeCriteria = originalTol*10;
+		opts.MAX_ITER = 1e6;
 
-	DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+		while (DCG_Temp < DCG){
+			if(opts.verbose == 1){
+				printf("Pre-Cond Stage %d: DCG = %1.3e\n", preCondStage, DCG_Temp);
+			}
+			for (int i = 0; i < mesh.numCellsY; i++)
+			{
+				MFL[i] = 0;
+				MFR[i] = 0;
+				for (int j = 0; j < mesh.numCellsX; j++)
+				{
+					int targetIndexRow = i / opts.MeshIncreaseY;
+					int targetIndexCol = j / opts.MeshIncreaseX;
+					if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+					{
+						D[i * mesh.numCellsX + j] = DCS;
+					}
+					else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+					{
+						D[i * mesh.numCellsX + j] = DCG_Temp;
+					}
+					else
+					{
+						D[i * mesh.numCellsX + j] = DCF;
+					}
+				}
+			}
 
-	// Solve with GPU
-	int iter_taken = 0;
-	iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts, 
-		d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+			// Now that we have all pieces, generate the coefficient matrix
 
-	if(opts.verbose == 1){
-		printf("Iterations taken = %d\n", iter_taken);
+			DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+			// Solve with GPU
+			int iter_taken = 0;
+			iter_taken = JacobiGPUPreCond(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+								d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+			if (opts.verbose == 1)
+			{
+				printf("Iterations taken = %d\n", iter_taken);
+			}
+
+			DCG_Temp = DCG_Temp*10;
+			preCondStage++;
+		}
+
+		// Pre-Conditioning done, solve actual system
+
+		opts.ConvergeCriteria = originalTol;
+		opts.MAX_ITER = originalMaxIter;
+
+		// No preconditioning necessary, proceed normally
+		for (int i = 0; i < mesh.numCellsY; i++)
+		{
+			MFL[i] = 0;
+			MFR[i] = 0;
+			for (int j = 0; j < mesh.numCellsX; j++)
+			{
+				int targetIndexRow = i / opts.MeshIncreaseY;
+				int targetIndexCol = j / opts.MeshIncreaseX;
+				if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+				{
+					D[i * mesh.numCellsX + j] = DCS;
+				}
+				else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+				{
+					D[i * mesh.numCellsX + j] = DCG;
+				}
+				else
+				{
+					D[i * mesh.numCellsX + j] = DCF;
+				}
+			}
+		}
+
+		// Calculate phase fractions
+
+		calcFracts3D(&myImg, D, &mesh, &opts);
+
+		// Now that we have all pieces, generate the coefficient matrix
+
+		DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+		// Solve with GPU
+		int iter_taken = 0;
+		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+							   d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+		if (opts.verbose == 1)
+		{
+			printf("Iterations taken = %d\n", iter_taken);
+		}
 	}
 
 	// non-dimensional and normalized Deff
