@@ -1279,7 +1279,8 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 	return iterCount;
 }
 
-int SingleSim3Phase(options opts){
+int SingleSim3Phase(options opts)
+{
 	/*
 		Function to read a single image and simulate the effective diffusivity for 3 phases.
 		Results are stored on the output file.
@@ -1302,18 +1303,19 @@ int SingleSim3Phase(options opts){
 
 	// Error messages
 
-	if (myImg.nChannels != 1){
+	if (myImg.nChannels != 1)
+	{
 		printf("Error: please enter a grascale image with 1 channel.\n Current number of channels = %d\n", myImg.nChannels);
 		return 1;
 	}
 
 	// Define number of cells in each direction
 
-	mesh.numCellsX = myImg.Width*opts.MeshIncreaseX;
-	mesh.numCellsY = myImg.Height*opts.MeshIncreaseY;
-	mesh.nElements = mesh.numCellsX*mesh.numCellsY;
-	mesh.dx = 1.0/mesh.numCellsX;
-	mesh.dy = 1.0/mesh.numCellsY;
+	mesh.numCellsX = myImg.Width * opts.MeshIncreaseX;
+	mesh.numCellsY = myImg.Height * opts.MeshIncreaseY;
+	mesh.nElements = mesh.numCellsX * mesh.numCellsY;
+	mesh.dx = 1.0 / mesh.numCellsX;
+	mesh.dy = 1.0 / mesh.numCellsY;
 
 	// Use pathfinding algorithm
 
@@ -1321,16 +1323,21 @@ int SingleSim3Phase(options opts){
 
 	// Declare search boundaries for the domain
 
-	unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
+	unsigned int *Grid = (unsigned int *)malloc(sizeof(unsigned int) * mesh.numCellsX * mesh.numCellsY);
 
 	// Only solid matters, as it is impermeable
 
-	for(int i = 0; i<mesh.numCellsY; i++){
-		for(int j = 0; j<mesh.numCellsX; j++){
-			if(myImg.target_data[i*myImg.Width + j] > 200){
-				Grid[i*myImg.Width + j] = 1;
-			} else{
-				Grid[i*myImg.Width + j] = 0;
+	for (int i = 0; i < mesh.numCellsY; i++)
+	{
+		for (int j = 0; j < mesh.numCellsX; j++)
+		{
+			if (myImg.target_data[i * myImg.Width + j] > 200)
+			{
+				Grid[i * myImg.Width + j] = 1;
+			}
+			else
+			{
+				Grid[i * myImg.Width + j] = 0;
 			}
 		}
 	}
@@ -1348,19 +1355,21 @@ int SingleSim3Phase(options opts){
 	double DCS = opts.DCsolid;
 
 	// Declare useful arrays
-	double *D = (double*)malloc(sizeof(double)*mesh.numCellsX*mesh.numCellsY); 			// Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
-	double *MFL = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the left boundary
-	double *MFR = (double*)malloc(sizeof(double)*mesh.numCellsY);										// mass flux in the right boundary
+	double *D = (double *)malloc(sizeof(double) * mesh.numCellsX * mesh.numCellsY); // Grid matrix containing the diffusion coefficient of each cell with appropriate mesh
+	double *MFL = (double *)malloc(sizeof(double) * mesh.numCellsY);				// mass flux in the left boundary
+	double *MFR = (double *)malloc(sizeof(double) * mesh.numCellsY);				// mass flux in the right boundary
 
-	double *CoeffMatrix = (double *)malloc(sizeof(double)*mesh.nElements*5);					// array will be used to store our coefficient matrix
-	double *RHS = (double *)malloc(sizeof(double)*mesh.nElements);										// array used to store RHS of the system of equations
-	double *ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
-	double *temp_ConcentrationDist = (double *)malloc(sizeof(double)*mesh.nElements);			// array used to store the solution to the system of equations
+	double *CoeffMatrix = (double *)malloc(sizeof(double) * mesh.nElements * 5);		// array will be used to store our coefficient matrix
+	double *RHS = (double *)malloc(sizeof(double) * mesh.nElements);					// array used to store RHS of the system of equations
+	double *ConcentrationDist = (double *)malloc(sizeof(double) * mesh.nElements);		// array used to store the solution to the system of equations
+	double *temp_ConcentrationDist = (double *)malloc(sizeof(double) * mesh.nElements); // array used to store the solution to the system of equations
 
 	// Initialize the concentration map with a linear gradient between the two boundaries
-	for(int i = 0; i<mesh.numCellsY; i++){
-		for(int j = 0; j<mesh.numCellsX; j++){
-			ConcentrationDist[i*mesh.numCellsX + j] = (double)j/mesh.numCellsX*(opts.CRight - opts.CLeft) + opts.CLeft;
+	for (int i = 0; i < mesh.numCellsY; i++)
+	{
+		for (int j = 0; j < mesh.numCellsX; j++)
+		{
+			ConcentrationDist[i * mesh.numCellsX + j] = (double)j / mesh.numCellsX * (opts.CRight - opts.CLeft) + opts.CLeft;
 		}
 	}
 
@@ -1372,13 +1381,13 @@ int SingleSim3Phase(options opts){
 
 	double *d_x_vec = NULL;
 	double *d_temp_x_vec = NULL;
-	
+
 	double *d_Coeff = NULL;
 	double *d_RHS = NULL;
 
 	// Initialize the GPU arrays
 
-	if(!initializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff, mesh))
+	if (!initializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff, mesh))
 	{
 		printf("\n Error when allocating space in GPU");
 		unInitializeGPU(&d_x_vec, &d_temp_x_vec, &d_RHS, &d_Coeff);
@@ -1389,7 +1398,7 @@ int SingleSim3Phase(options opts){
 	// 	on converting the actual 2D image into a simulation domain.
 
 	/*
-	
+
 	Target Grayscale Image Requirements:
 	- Solid = 255
 	- Fluid = 150
@@ -1455,11 +1464,13 @@ int SingleSim3Phase(options opts){
 
 		// Decrease the strictness of convergence for the pre-conditioner
 
-		opts.ConvergeCriteria = originalTol*10;
+		opts.ConvergeCriteria = originalTol * 10;
 		opts.MAX_ITER = 1e6;
 
-		while (DCG_Temp < DCG){
-			if(opts.verbose == 1){
+		while (DCG_Temp < DCG)
+		{
+			if (opts.verbose == 1)
+			{
 				printf("Pre-Cond Stage %d: DCG = %1.3e\n", preCondStage, DCG_Temp);
 			}
 			for (int i = 0; i < mesh.numCellsY; i++)
@@ -1492,14 +1503,14 @@ int SingleSim3Phase(options opts){
 			// Solve with GPU
 			int iter_taken = 0;
 			iter_taken = JacobiGPUPreCond(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
-								d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+										  d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
 
 			if (opts.verbose == 1)
 			{
 				printf("Iterations taken = %d\n", iter_taken);
 			}
 
-			DCG_Temp = DCG_Temp*10;
+			DCG_Temp = DCG_Temp * 10;
 			preCondStage++;
 		}
 
@@ -1553,21 +1564,23 @@ int SingleSim3Phase(options opts){
 
 	// non-dimensional and normalized Deff
 
-	myImg.deff = myImg.deff/DCF;
+	myImg.deff = myImg.deff / DCF;
 
 	// Print if applicable
 
-	if(opts.verbose == 1){
+	if (opts.verbose == 1)
+	{
 		std::cout << "DCF = " << DCF << ", Deff " << myImg.deff << std::endl;
 	}
 
-	// create output file 
+	// create output file
 
 	outputSingle3Phase(opts, mesh, myImg);
 
 	// Create Concentration Map
 
-	if(opts.printCmap == 1){
+	if (opts.printCmap == 1)
+	{
 		createCMAP(ConcentrationDist, &opts, &mesh);
 	}
 
@@ -1584,7 +1597,6 @@ int SingleSim3Phase(options opts){
 
 	return 0;
 }
-
 
 int SingleSim(options opts){
 	/*
