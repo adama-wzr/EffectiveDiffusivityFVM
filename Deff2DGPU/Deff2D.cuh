@@ -521,7 +521,36 @@ void createCMAP(double *CMap, options *opts, meshInfo *mesh)
 		}
 	}
 	fclose(OUTPUT);
+}
 
+
+void createCMAPBatch(double *CMap, char* filename, meshInfo *mesh)
+{
+	/*
+		createCMAP function:
+
+		Inputs:
+			- pointer to CMap: pointer to array containing the concentration at each grid point.
+			- pointer to filename: pointer to a string containing the file name.
+			- pointer to mesh: pointer to mesh struct containing mesh information.
+		Outputs:
+			- None.
+
+		Funtion will create a .csv of the concentration distribution in the domain, using the user entered
+		name for the .csv file.
+	
+	*/
+
+	FILE *OUTPUT;
+
+	OUTPUT = fopen(filename, "w+");
+	fprintf(OUTPUT, "X,Y,C\n");
+	for(int i = 0; i<mesh->numCellsY; i++){
+		for(int j = 0; j<mesh->numCellsX; j++){
+			fprintf(OUTPUT,"%d,%d,%1.3e\n", j, i, CMap[i*mesh->numCellsX + j]);
+		}
+	}
+	fclose(OUTPUT);
 }
 
 
@@ -1158,11 +1187,11 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 		temp_x_vec[i] = x_vec[i];
 	}
 
-	FILE *OUT;
+	// FILE *OUT;
 
-	OUT = fopen("ConvData.csv", "w");
+	// OUT = fopen("ConvData.csv", "w");
 
-	fprintf(OUT, "iter,Deff,R\n");
+	// fprintf(OUT, "iter,Deff,R\n");
 
 	// Copy arrays into GPU memory
 
@@ -1234,7 +1263,7 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 			{
 				// printf("Iteration = %d, Deff = %1.3e, Residual = %1.3e, Deff Change = %2.3f\n", iterCount, deffNew / opts.DCfluid, Res);
 				printf("Iteration = %d, Deff = %1.3e, Deff Change = %1.3e\n", iterCount, deffNew / opts.DCfluid, percentChange);
-				fprintf(OUT,"%d,%1.3e,%1.3e\n",iterCount, deffNew, percentChange);
+				// fprintf(OUT,"%d,%1.3e,%1.3e\n",iterCount, deffNew, percentChange);
 			}
 			deffOld = deffNew;
 			// myImg->conv = Res;
@@ -1255,7 +1284,7 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 		iterCount++;
 	}
 
-	fclose(OUT);
+	// fclose(OUT);
 
 	cudaEventRecord(stop, 0);
 	cudaEventSynchronize(stop);
@@ -2037,6 +2066,7 @@ int BatchSim3Phase(options opts){
 	// array to store image name
 
 	char imageName[100];
+	char CMapName[100];
 
 	// Create array to store all outputs
 	// In order: imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df
@@ -2061,8 +2091,8 @@ int BatchSim3Phase(options opts){
 		// right now the program only deals with grayscale binary images, so we need to make sure to return that to the user
 
 		if(opts.verbose == 1){
+			std::cout << imageName <<std::endl;
 			std::cout << "Width = " << myImg.Width << " Height = " << myImg.Height << " Channel = " << myImg.nChannels << std::endl;
-			std::cout << "Porosity = " << myImg.porosity << std::endl;
 		}
 
 		if (myImg.nChannels != 1){
@@ -2167,45 +2197,160 @@ int BatchSim3Phase(options opts){
 
 		*/
 
-		for (int i = 0; i < mesh.numCellsY; i++)
+		bool preCond = true;
+
+		if (preCond == false)
 		{
-			MFL[i] = 0;
-			MFR[i] = 0;
-			for (int j = 0; j < mesh.numCellsX; j++)
+			// No preconditioning necessary, proceed normally
+			for (int i = 0; i < mesh.numCellsY; i++)
 			{
-				int targetIndexRow = i / opts.MeshIncreaseY;
-				int targetIndexCol = j / opts.MeshIncreaseX;
-				if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+				MFL[i] = 0;
+				MFR[i] = 0;
+				for (int j = 0; j < mesh.numCellsX; j++)
 				{
-					D[i * mesh.numCellsX + j] = DCS;
-				}
-				else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
-				{
-					D[i * mesh.numCellsX + j] = DCG;
-				}
-				else
-				{
-					D[i * mesh.numCellsX + j] = DCF;
+					int targetIndexRow = i / opts.MeshIncreaseY;
+					int targetIndexCol = j / opts.MeshIncreaseX;
+					if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+					{
+						D[i * mesh.numCellsX + j] = DCS;
+					}
+					else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+					{
+						D[i * mesh.numCellsX + j] = DCG;
+					}
+					else
+					{
+						D[i * mesh.numCellsX + j] = DCF;
+					}
 				}
 			}
+
+			// Calculate phase fractions
+
+			calcFracts3D(&myImg, D, &mesh, &opts);
+
+			// Now that we have all pieces, generate the coefficient matrix
+
+			DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+			// Solve with GPU
+			int iter_taken = 0;
+			iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+								   d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+			if (opts.verbose == 1)
+			{
+				printf("Iterations taken = %d\n", iter_taken);
+			}
 		}
-
-		// Calculate phase fractions
-
-		calcFracts3D(&myImg, D, &mesh, &opts);
-
-		// Now that we have all pieces, generate the coefficient matrix
-
-		DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
-
-		// Solve with GPU
-		int iter_taken = 0;
-		iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
-							   d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
-
-		if (opts.verbose == 1)
+		else
 		{
-			printf("Iterations taken = %d\n", iter_taken);
+			// Pre-condition, then solve
+			double DCG_Temp = 10;
+			int preCondStage = 1;
+
+			// save original settings
+			double originalTol = opts.ConvergeCriteria;
+			double originalMaxIter = opts.MAX_ITER;
+
+			// Decrease the strictness of convergence for the pre-conditioner
+
+			opts.ConvergeCriteria = originalTol * 10;
+			opts.MAX_ITER = 1e6;
+
+			while (DCG_Temp < DCG)
+			{
+				if (opts.verbose == 1)
+				{
+					printf("Pre-Cond Stage %d: DCG = %1.3e\n", preCondStage, DCG_Temp);
+				}
+				for (int i = 0; i < mesh.numCellsY; i++)
+				{
+					MFL[i] = 0;
+					MFR[i] = 0;
+					for (int j = 0; j < mesh.numCellsX; j++)
+					{
+						int targetIndexRow = i / opts.MeshIncreaseY;
+						int targetIndexCol = j / opts.MeshIncreaseX;
+						if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+						{
+							D[i * mesh.numCellsX + j] = DCS;
+						}
+						else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+						{
+							D[i * mesh.numCellsX + j] = DCG_Temp;
+						}
+						else
+						{
+							D[i * mesh.numCellsX + j] = DCF;
+						}
+					}
+				}
+
+				// Now that we have all pieces, generate the coefficient matrix
+
+				DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+				// Solve with GPU
+				int iter_taken = 0;
+				iter_taken = JacobiGPUPreCond(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+											  d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+				if (opts.verbose == 1)
+				{
+					printf("Iterations taken = %d\n", iter_taken);
+				}
+
+				DCG_Temp = DCG_Temp * 10;
+				preCondStage++;
+			}
+
+			// Pre-Conditioning done, solve actual system
+
+			opts.ConvergeCriteria = originalTol;
+			opts.MAX_ITER = originalMaxIter;
+
+			// No preconditioning necessary, proceed normally
+			for (int i = 0; i < mesh.numCellsY; i++)
+			{
+				MFL[i] = 0;
+				MFR[i] = 0;
+				for (int j = 0; j < mesh.numCellsX; j++)
+				{
+					int targetIndexRow = i / opts.MeshIncreaseY;
+					int targetIndexCol = j / opts.MeshIncreaseX;
+					if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] > 200)
+					{
+						D[i * mesh.numCellsX + j] = DCS;
+					}
+					else if (myImg.target_data[targetIndexRow * myImg.Width + targetIndexCol] < 50)
+					{
+						D[i * mesh.numCellsX + j] = DCG;
+					}
+					else
+					{
+						D[i * mesh.numCellsX + j] = DCF;
+					}
+				}
+			}
+
+			// Calculate phase fractions
+
+			calcFracts3D(&myImg, D, &mesh, &opts);
+
+			// Now that we have all pieces, generate the coefficient matrix
+
+			DiscretizeMatrix2D_ImpSolid(D, CoeffMatrix, RHS, mesh, opts, Grid);
+
+			// Solve with GPU
+			int iter_taken = 0;
+			iter_taken = JacobiGPU(CoeffMatrix, RHS, ConcentrationDist, temp_ConcentrationDist, opts,
+								   d_x_vec, d_temp_x_vec, d_Coeff, d_RHS, MFL, MFR, D, mesh, &myImg);
+
+			if (opts.verbose == 1)
+			{
+				printf("Iterations taken = %d\n", iter_taken);
+			}
 		}
 
 		// non-dimensional and normalized Deff
@@ -2222,16 +2367,23 @@ int BatchSim3Phase(options opts){
 		// save output
 		// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
-		output[imageNum*10 + 0] = (double) imageNum;
-		output[imageNum*10 + 1] = myImg.SVF;
-		output[imageNum*10 + 2] = myImg.LVF;
-		output[imageNum*10 + 3] = (double) myImg.PathFlag;
-		output[imageNum*10 + 4] = myImg.deff;
-		output[imageNum*10 + 5] = myImg.gpuTime/1000;
-		output[imageNum*10 + 6] = mesh.nElements;
-		output[imageNum*10 + 7] = myImg.conv;
-		output[imageNum*10 + 8] = opts.DCsolid;
-		output[imageNum*10 + 9] = DCF;
+		output[imageNum * 10 + 0] = (double)imageNum;
+		output[imageNum * 10 + 1] = myImg.SVF;
+		output[imageNum * 10 + 2] = myImg.LVF;
+		output[imageNum * 10 + 3] = (double)myImg.PathFlag;
+		output[imageNum * 10 + 4] = myImg.deff;
+		output[imageNum * 10 + 5] = myImg.gpuTime / 1000;
+		output[imageNum * 10 + 6] = mesh.nElements;
+		output[imageNum * 10 + 7] = myImg.conv;
+		output[imageNum * 10 + 8] = opts.DCsolid;
+		output[imageNum * 10 + 9] = DCF;
+
+		// Save concentration maps if applicable
+
+		if (opts.printCmap == 1){
+			sprintf(CMapName,"CMAP_%05d.csv",imageNum);
+			createCMAPBatch(ConcentrationDist, CMapName, &mesh);
+		}
 
 		// Free everything
 
