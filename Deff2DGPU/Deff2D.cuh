@@ -194,7 +194,7 @@ int outputSingle3Phase(options opts, meshInfo mesh, simulationInfo myImg)
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
-	fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
+	// fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
 	fprintf(OUTPUT, "%s,%f,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.SVF, myImg.LVF, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
 			opts.DCsolid, opts.DCfluid, opts.DCgas);
 	fclose(OUTPUT);
@@ -1074,14 +1074,14 @@ int JacobiGPUPreCond(double *arr, double *sol, double *x_vec, double *temp_x_vec
 			Q2 = 0;
 			for (int j = 0; j < numRows; j++)
 			{
-				MFL[j] = D[j * numCols] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
-				MFR[j] = D[(j + 1) * numCols - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
+				MFL[j] = D[j * numCols] * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
+				MFR[j] = D[(j + 1) * numCols - 1] * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
 				Q1 += MFL[j];
 				Q2 += MFR[j];
 			}
 			Q1 = Q1;
 			Q2 = Q2;
-			qAvg = (Q1 + Q2) / 2;
+			qAvg = (Q1 + Q2) / (2.0 * numRows*dx/dy);
 			deffNew = qAvg / ((opts.CRight - opts.CLeft));
 			percentChange = (deffOld - deffNew)/(deffOld);
 			// Res = Residual(numRows, numCols, &opts, x_vec, D);
@@ -1219,14 +1219,14 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 			Q2 = 0;
 			for (int j = 0; j < numRows; j++)
 			{
-				MFL[j] = D[j * numCols] * dy * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
-				MFR[j] = D[(j + 1) * numCols - 1] * dy * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
+				MFL[j] = D[j * numCols] * (x_vec[j * numCols] - opts.CLeft) / (dx / 2.0);
+				MFR[j] = D[(j + 1) * numCols - 1] * (opts.CRight - x_vec[(j + 1) * numCols - 1]) / (dx / 2.0);
 				Q1 += MFL[j];
 				Q2 += MFR[j];
 			}
 			Q1 = Q1;
 			Q2 = Q2;
-			qAvg = (Q1 + Q2) / 2;
+			qAvg = (Q1 + Q2) / (2.0 * numRows*dx/dy);
 			deffNew = qAvg / ((opts.CRight - opts.CLeft));
 			percentChange = (deffOld - deffNew)/(deffOld);
 			// Res = Residual(numRows, numCols, &opts, x_vec, D);
