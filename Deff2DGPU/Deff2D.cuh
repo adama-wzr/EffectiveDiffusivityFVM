@@ -2121,19 +2121,26 @@ int BatchSim3Phase(options opts){
 
 		// Declare search boundaries for the domain
 
-		unsigned int *Grid = (unsigned int*)malloc(sizeof(unsigned int)*mesh.numCellsX*mesh.numCellsY);
+		unsigned int *Grid = (unsigned int *)malloc(sizeof(unsigned int) * mesh.numCellsX * mesh.numCellsY);
 
-		for(int i = 0; i<mesh.numCellsY; i++){
-			for(int j = 0; j<mesh.numCellsX; j++){
-				if(myImg.target_data[i*myImg.Width + j] > 150){
-					Grid[i*myImg.Width + j] = 1;
-				} else{
-					Grid[i*myImg.Width + j] = 0;
+		// Only solid matters, as it is impermeable
+
+		for (int i = 0; i < mesh.numCellsY; i++)
+		{
+			for (int j = 0; j < mesh.numCellsX; j++)
+			{
+				if (myImg.target_data[i * myImg.Width + j] > 200)
+				{
+					Grid[i * myImg.Width + j] = 1;
+				}
+				else
+				{
+					Grid[i * myImg.Width + j] = 0;
 				}
 			}
 		}
 
-		// Search path
+		// Search path. This function will also mark the non-participating fluid
 
 		FloodFill(Grid, &mesh, &myImg);
 
