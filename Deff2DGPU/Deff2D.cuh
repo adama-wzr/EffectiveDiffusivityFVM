@@ -1110,7 +1110,7 @@ int JacobiGPUPreCond(double *arr, double *sol, double *x_vec, double *temp_x_vec
 			}
 			Q1 = Q1;
 			Q2 = Q2;
-			qAvg = (Q1 + Q2) / (2.0 * numRows*dx/dy);
+			qAvg = (Q1 + Q2) / (2.0 * numRows);
 			deffNew = qAvg / ((opts.CRight - opts.CLeft));
 			percentChange = (deffOld - deffNew)/(deffOld);
 			// Res = Residual(numRows, numCols, &opts, x_vec, D);
@@ -1255,7 +1255,7 @@ int JacobiGPU(double *arr, double *sol, double *x_vec, double *temp_x_vec, optio
 			}
 			Q1 = Q1;
 			Q2 = Q2;
-			qAvg = (Q1 + Q2) / (2.0 * numRows*dx/dy);
+			qAvg = (Q1 + Q2) / (2.0 * numRows);
 			deffNew = qAvg / ((opts.CRight - opts.CLeft));
 			percentChange = (deffOld - deffNew)/(deffOld);
 			// Res = Residual(numRows, numCols, &opts, x_vec, D);
