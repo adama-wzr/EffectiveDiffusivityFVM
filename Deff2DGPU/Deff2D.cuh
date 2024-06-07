@@ -194,7 +194,7 @@ int outputSingle3Phase(options opts, meshInfo mesh, simulationInfo myImg)
 	// imgNum, porosity,PathFlag,Deff,Time,nElements,converge,ds,df
 
 	OUTPUT = fopen(opts.outputFilename, "a+");
-	// fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
+	fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
 	fprintf(OUTPUT, "%s,%f,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", opts.inputFilename, myImg.SVF, myImg.LVF, myImg.PathFlag, myImg.deff, myImg.gpuTime / 1000, mesh.nElements, myImg.conv,
 			opts.DCsolid, opts.DCfluid, opts.DCgas);
 	fclose(OUTPUT);
@@ -224,7 +224,7 @@ int outputBatch3Phase(options opts, double *output)
 	fprintf(OUTPUT, "imgNum,SVF,LVF,PathFlag,Deff,Time,nElements,converge,ds,df,dg\n");
 	for (int i = 0; i < opts.NumImg; i++)
 	{
-		fprintf(OUTPUT, "%d,%f,%f,%d,%1.3e,%f,%d,%1.3e,%1.3e,%1.3e,%1.3e\n", i, output[i * 10 + 1], output[i * 10 + 2], (int)output[i * 10 + 3], output[i * 10 + 4],
+		fprintf(OUTPUT, "%d,%f,%f,%d,%1.5e,%f,%d,%1.5e,%1.5e,%1.5e,%1.5e\n", i, output[i * 10 + 1], output[i * 10 + 2], (int)output[i * 10 + 3], output[i * 10 + 4],
 				output[i * 10 + 5], (int)output[i * 10 + 6], output[i * 10 + 7], output[i * 10 + 8], output[i * 10 + 9], opts.DCgas);
 	}
 	fclose(OUTPUT);
@@ -592,10 +592,15 @@ int FloodFill(unsigned int* Grid, meshInfo* simInfo, simulationInfo* info)
 
 	for(int row = 0; row<simInfo->numCellsY; row++){
 		int indexL = row*simInfo->numCellsX;
+		int indexR = (row+1)*simInfo->numCellsX - 1;
 
 		if(Domain[indexL] == -1){
 			Domain[indexL] = 0;
 			cList.insert(std::make_pair(row, 0));
+		}
+		if(Domain[indexR == -1]){
+			Domain[indexR] = 0;
+			cList.insert(std::make_pair(row, simInfo->numCellsX-1));
 		}
 	}
 
