@@ -45,7 +45,8 @@ All these files have to be in the same folder (or in the path for compilation/ru
 ## How to Cite
 
 Please cite one of the relevant publications shown below:
-    - Sarabandi, A., Adam, A., & Li, X. (2024). Influence of Electrolyte Saturation on the Performance of Li-O2 Batteries. ACS Applied Materials and Interfaces. https://doi.org/10.1021/acsami.4c12168
+
+- Sarabandi, A., Adam, A., & Li, X. (2024). Influence of Electrolyte Saturation on the Performance of Li-O2 Batteries. ACS Applied Materials and Interfaces. https://doi.org/10.1021/acsami.4c12168
 
 ## Code Authors
 
