@@ -70,12 +70,24 @@ This work used Expanse(GPU) at SDSC through allocations MAT210014 and MAT230071 
 
 ## Upcoming Changes
 
-At this moment, there is no timeline of when these changes might come through. However, below is a list of changes that have been discussed and will be implemented sometime in the future. This list is in no particular order.
+Changes will be coming to this repository soon. A new branch for development will come out and start implementing some of the features described below, and they will only be committed to this folder once the changes are stable. For now, the folder with the 2D Effective Diffusivity code will remain unchanged.
 
-- 3D version of the code.
-- CPU alternatives to the GPU code.
-- HPC version with both CPU and GPU acceleration.
+The list of new changes and new capabilities to the code will be added as follows (the order might change, but this is a tentative implementation guide):
+
+1. Expanded more general derivation of equations will allow for time dependent solutions.
+2. Mass generation/destruction will be implemented.
+3. CPU version with multi-threading.
+4. 3D version of the code will be available for 3D structures (with either a stack of 2D images or a csv file encoding in 3D).
+5. A multi-GPU version with HPC resources in mind for large-scale simulations.
+
+Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
+
 - GUI:
   - The actual GUI is a way to facilitate and/or guide the generation of the input file and calling the appropriate code versions based on user input.
   - The GUI won't be necessary. While code can run from the GUI itself, the code will also run without the GUI.
-- Higher accuracy discretization schemes.
+- Higher-order discretization methods.
+- For the GPU code, I will try and implement some of the most recent cuBLAS and cuSPARSE solvers.
+- For the CPU code, implementation of [scaLAPACK](https://www.netlib.org/scalapack/) for solving the sparse systems. I will test those versus the already existing solvers, so we will see what works best.
+  - The GPU code in 3D, with the same solver as the CPU version, can be hundreds of times faster than the CPU counterpart. In other words, with parallel computing, a mid-range GPU (like a GeFORCE RTX 3070) can be as fast as 100 CPUs (also with the bold assumption of 100% efficiency on the parallel CPU code). Therefore, the development will first focus on GPU and multi-GPU code as opposed to CPU.
+- More meshing options.
+  - The current meshing approach is very rudimentary. For estimating bulk properties of the domain, the meshing does not seem to be a problem. However, the local accuracy might be sacrificed in some cases. I will try to add some methods for mesh refinement in some locations.
