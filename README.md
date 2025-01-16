@@ -79,6 +79,8 @@ The list of new changes and new capabilities to the code will be added as follow
 3. CPU version with multi-threading.
 4. 3D version of the code will be available for 3D structures (with either a stack of 2D images or a csv file encoding in 3D).
 5. A multi-GPU version with HPC resources in mind for large-scale simulations.
+6. More flexible boundary conditions.
+7. Simulation mode for calculating tortuosity.
 
 Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
 
