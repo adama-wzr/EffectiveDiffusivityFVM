@@ -1,2 +1,11 @@
 Example Input File:
 nD: 3
+numDC: 3
+D1: 10
+D2: 4e-5
+D3: 50
+D4: 100
+D_TH1: 5
+D_TH2: 10
+D_TH3: 60
+D_TH4: hello
