@@ -20,12 +20,12 @@ int main(int argc, char **argv)
 
     if(opts.verbose) printOptions(&opts);
 
-    printf("Num D's expected = %d\n", opts.numDC);
-
-    for(int i = 0; i < opts.numDC; i++)
+    if(opts.nD == 3)
     {
-        printf("D%d = %1.3e\n",i+1, opts.DC[i]);
-        printf("D_TH%d = %d\n", i+1, opts.DC_TH[i]);
+        if(opts.SteadyStateFlag == 1)
+        {
+            SteadyStateSim3D(&opts);
+        }
     }
     
     return 0;

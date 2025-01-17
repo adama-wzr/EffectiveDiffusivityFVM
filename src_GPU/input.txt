@@ -1,11 +1,22 @@
 Example Input File:
 nD: 3
-numDC: 3
+numDC: 2
+inputType: 0
+width: 128
+height: 128
+depth: 128
 D1: 10
 D2: 4e-5
-D3: 50
-D4: 100
 D_TH1: 5
 D_TH2: 10
-D_TH3: 60
-D_TH4: hello
+printOutput: 1
+OutputName: testOut.csv
+printCMap: 1
+CMapName: testCMap.csv
+SS: 1
+Convergence: 1e-6
+MaxIter: 1e5
+CL: 0
+CR: 1
+InputName: Schwarz091.csv
+Verbose: 1

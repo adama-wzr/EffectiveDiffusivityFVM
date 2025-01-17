@@ -51,6 +51,7 @@ typedef struct
 	long int MAX_ITER;		    // Max iterations
 	double ConvergeCriteria;    // Convergence Criteria
 	char *inputFilename;	    // Input filename
+    int printOut;               // Flag to print output or not
 	char *outputFilename;	    // Output filename
 	int printCmap;			    // print concentration map (true/false) flag
 	char *CMapName;			    // Concentration map name
@@ -61,7 +62,7 @@ typedef struct
     int height;                 // height in number of pixels
     int width;                  // width in number of pixels
     int depth;                  // depth in number of pixels
-    double nD;                  // number of dimensions
+    int nD;                  // number of dimensions
     char inputType;             // Input format for 3D simulations (0 default .csv, 1 is stack)
 } options;
 
@@ -81,9 +82,11 @@ typedef struct
 {
 	int numCellsX;
 	int numCellsY;
-	int nElements;
+    int numCellsZ;
+	long int nElements;
 	double dx;
 	double dy;
+    double dz;
 } meshInfo;
 
 
@@ -105,6 +108,7 @@ int printOptions(options* opts)
     printf("Current selected options:\n\n");
     printf("--------------------------------------\n");
     printf("Number of Dimensions: %d\n", opts->nD);
+    printf("InputType = %d\n", opts->inputType);
     if(opts->BatchFlag)
     {
         printf("Running a bacth of size = %d\n", opts->NumImgBatch);
@@ -117,68 +121,67 @@ int printOptions(options* opts)
             printf("Structure Width  = %d\n", opts->width);
             printf("Structure Height = %d\n", opts->height);
             printf("Structure Depth  = %d\n", opts->depth);
+            printf("Diffusion Coefficients:\n");
+            for(int i = 0; i < opts->numDC; i++)
+            {
+                printf("D%d = %1.3e\n",i+1, opts->DC[i]);
+            }
 
             // If nD = 2 make sure to set input type to 2
-        
-        
         }
         else if(opts->inputType == 1)
         {
             printf("Input Method = jpg stack\n");
             printf("Stack Size = %d\n", opts->depth);
+            printf("Diffusion Coefficients and Processing Thresholds:\n");
+            for(int i = 0; i < opts->numDC; i++)
+            {
+                printf("D%d = %1.3e\n",i+1, opts->DC[i]);
+                printf("D_TH%d = %d\n", i+1, opts->DC_TH[i]);
+            }
+        }
+        else if(opts->inputType == 2)
+        {
+            printf("Filename = %s\n",opts->inputFilename);
+            printf("Diffusion Coefficients and Processing Thresholds:\n");
+            for(int i = 0; i < opts->numDC; i++)
+            {
+                printf("D%d = %1.3e\n",i+1, opts->DC[i]);
+                printf("D_TH%d = %d\n", i+1, opts->DC_TH[i]);
+            }
+        }
+        // check steady-state flag
+        if(opts->SteadyStateFlag == 1)
+        {
+            printf("Steady-State Simulation Mode Selected\n");
+        }
+        else if(opts->SteadyStateFlag == 0)
+        {
+            printf("Time-dependent Simulation Selected\n");
+            printf("Time discretization:\n");
+            /*
+                Add here different time discretization requirements
+            */
+        }
+        printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
+        printf("Mesh Refine Y = %d\n", opts->MeshIncreaseY);
+        if (opts->nD == 3)
+        {
+            printf("Mesh Refine Z = %d\n", opts->MeshIncreaseZ);
         }
 
-        // stopped here
-        
+        printf("Max. Iterations: %ld\n", opts->MAX_ITER);
+        printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
+
+        if(opts->printCmap == 1)
+        {
+            printf("CMAP Name: %s\n", opts->CMapName);
+        }
+        if(opts->printOut == 1)
+        {
+            printf("Output File Name: %s\n", opts->outputFilename);
+        }
     }
-    
-    printf("Number of phases:\n");
-
-	// if(opts->BatchFlag == 0){
-	// 	printf("--------------------------------------\n\n");
-	// 	printf("Current selected options:\n\n");
-	// 	printf("--------------------------------------\n");
-	// 	printf("Number of Phases = %d\n", opts->nPhase);
-	// 	printf("DC Fluid = %1.3e\n", opts->DCfluid);
-	// 	printf("DC Solid = %1.3e\n", opts->DCsolid);
-	// 	printf("DC Gas = %1.3e\n", opts->DCgas);
-	// 	printf("Concentration Left = %.2f\n", opts->CLeft);
-	// 	printf("Concentration Right = %.2f\n", opts->CRight);
-	// 	printf("Mesh Amp. X = %d\n", opts->MeshIncreaseX);
-	// 	printf("Mesh Amp. Y = %d\n", opts->MeshIncreaseY);
-	// 	printf("Maximum Iterations = %ld\n", opts->MAX_ITER);
-	// 	printf("Convergence = %.10f\n", opts->ConvergeCriteria);
-	// 	printf("Name of input image: %s\n", opts->inputFilename);
-	// 	printf("Name of output file: %s\n", opts->outputFilename);
-
-	// 	if(opts->printCmap == 0){
-	// 		printf("Print Concentration Map = False\n");
-	// 	} else{
-	// 		printf("Concentration Map Name = %s\n", opts->CMapName);
-	// 	}
-	// 	printf("--------------------------------------\n\n");
-	// } else if(opts->BatchFlag == 1){
-	// 	printf("--------------------------------------\n\n");
-	// 	printf("Running Image Batch:\n\n");
-	// 	printf("Number of Phases = %d\n", opts->nPhase);
-	// 	printf("DC Fluid = %1.3e\n", opts->DCfluid);
-	// 	printf("DC Solid = %1.3e\n", opts->DCsolid);
-	// 	printf("DC Gas = %1.3e\n", opts->DCgas);
-	// 	printf("Concentration Left = %.2f\n", opts->CLeft);
-	// 	printf("Concentration Right = %.2f\n", opts->CRight);
-	// 	printf("Mesh Amp. X = %d\n", opts->MeshIncreaseX);
-	// 	printf("Mesh Amp. Y = %d\n", opts->MeshIncreaseY);
-	// 	printf("Maximum Iterations = %ld\n", opts->MAX_ITER);
-	// 	printf("Convergence = %.10f\n", opts->ConvergeCriteria);
-	// 	printf("Name of output file: %s\n", opts->outputFilename);
-	// 	printf("Number of files to run: %d\n", opts->NumImg);
-	// 	if (opts->printCmap == 1){
-	// 		printf("Printing Concentration Distribution for all images.\n");
-	// 	} else{
-	// 		printf("No Concentration maps will be printed.\n");
-	// 	}
-	// 	printf("--------------------------------------\n\n");
-	// }
     return 0;
 }
 
@@ -223,6 +226,9 @@ void readInputGeneral(char* FileName, options* opts){
     opts->MeshIncreaseY = 1;
     opts->MeshIncreaseZ = 1;
 
+    opts->BatchFlag = 0;
+    opts->inputType = 0;
+
     /*
     --------------------------------------------------------------------------------
 
@@ -238,7 +244,7 @@ void readInputGeneral(char* FileName, options* opts){
         sscanf(myText.c_str(), "%s %lf", tempC, &tempD);
         if(strcmp(tempC, "nD:") == 0)
         {
-            opts->nD = tempD;
+            opts->nD = (int)tempD;
         }
         else if(strcmp(tempC, "numDC:") == 0)
         {
@@ -336,9 +342,13 @@ void readInputGeneral(char* FileName, options* opts){
         {
             opts->depth = (int)tempD;
         }
-        else if(strcmp(tempC, "inputType"))
+        else if(strcmp(tempC, "inputType:") == 0)
         {
             opts->inputType = (char)tempD;
+        }
+        else if(strcmp(tempC, "printOutput:") == 0)
+        {
+            opts->printOut = (int)tempD;
         }
 
         // Update the number of expected diffusion coefficients and thresholding for image
@@ -348,6 +358,129 @@ void readInputGeneral(char* FileName, options* opts){
         if (DC_TH_read <= opts->numDC)  sprintf(tempDC_TH, "D_TH%d:", DC_TH_read);
     }
     return;
+}
+
+int readCSV3D(options* opts, char* simObject)
+{
+    /*
+        Function readCSSV3D:
+        Inputs:
+            - pointer to options data structure
+            - pointer to simObject array, where the structure will be saved
+                with the appropriate flags.
+        Output:
+            - None
+        
+        The function will populate the simObject array according to the data in the
+        input .csv file.
+
+    */
+    // read structure
+    int height, width, depth;
+    long int nElements;
+
+    height = opts->height;
+    width = opts->width;
+    depth = opts->depth;
+    nElements = height*width*depth;
+
+    // declare arrays to hold coordinates for all specified phases
+
+    int *x = (int *)malloc(sizeof(int)*nElements);
+    int *y = (int *)malloc(sizeof(int)*nElements);
+    int *z = (int *)malloc(sizeof(int)*nElements);
+    int *phase = (int *)malloc(sizeof(int)*nElements);
+
+    // Read structure file
+
+    FILE *target_data;
+
+    target_data = fopen(opts->inputFilename, "r");
+
+    // check if file exists
+
+    if (target_data == NULL){
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[20];
+
+    fscanf(target_data, "%c,%c,%c,%s", &header[0], &header[1], &header[2], &header[3]);
+
+    // if (opts->verbose) printf("Header = %s\n", header);      // debug mainly
+
+    // read coordinates from input file
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%d,%d,%d,%d", &x[count], &y[count], &z[count], &phase[count]) == 4)
+    {
+        count++;
+    }
+
+    printf("Count = %d\n", (int)count);
+
+    long int index = 0;
+
+    for(long int i = 0; i<count; i++)
+    {
+        index = z[i]*height*width + y[i]*width + x[i];
+        simObject[index] = phase[i];    // the diffusivities later are assigned based on this number
+    }
+
+    printf("Pore = %lf\n", 1.0f - (double)count/nElements);
+
+    // memory management
+
+    free(x);
+    free(y);
+    free(z);
+    free(phase);
+
+    return 0;
+}
+
+int SteadyStateSim3D(options* opts)
+{
+    /*
+        Function SteadyStateSim3D:
+        Inputs:
+            - pointer to options data structure
+        Outputs:
+            - None.
+        
+        Function will control the entire simulation of a 3D structure in Steady-State
+        operation.
+    */
+
+    // Initialize simulation data structures
+    meshInfo mesh;
+
+    simulationInfo simInfo;
+
+    // populate mesh info with available information
+
+    mesh.numCellsX = opts->width*opts->MeshIncreaseX;
+    mesh.numCellsY = opts->height*opts->MeshIncreaseY;
+    mesh.numCellsZ = opts->depth*opts->MeshIncreaseZ;
+    
+    mesh.nElements = mesh.numCellsX*mesh.numCellsY*mesh.numCellsZ;
+
+    mesh.dx = (double)1.0/mesh.numCellsX;
+    mesh.dy = (double)1.0/mesh.numCellsY;
+    mesh.dz = (double)1.0/mesh.numCellsZ;
+
+    // Read structure
+    
+    char* simObject = (char *)malloc(opts->height*opts->width*opts->depth*sizeof(char));
+    
+    memset(simObject, 0, opts->height*opts->width*opts->depth*sizeof(char));    // initialized to pore-space
+
+    readCSV3D(opts, simObject);
+
+    printf("Success??\n");
+    return 0;
 }
 
 #endif

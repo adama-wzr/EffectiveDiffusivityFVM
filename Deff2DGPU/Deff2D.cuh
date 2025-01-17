@@ -806,9 +806,6 @@ int DiscretizeMatrix2D_ImpSolid(double* D, double* A, double* b, meshInfo mesh, 
 	}
 
 	return 0;
-
-
-
 }
 
 
