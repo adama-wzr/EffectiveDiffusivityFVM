@@ -30,7 +30,7 @@ The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Lin
 With the NVIDIA suite installed properly and already added to the path, also assuming all required files are in the same folder.
 
 ```bash
-nvcc Perm2D.cu
+nvcc Deff2D.cu
 ```
 ## Required Files
 
