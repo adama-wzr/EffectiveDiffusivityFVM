@@ -5,10 +5,10 @@ inputType: 0
 width: 128
 height: 128
 depth: 128
-D1: 10
+D1: 0
 D2: 4e-5
-D_TH1: 5
-D_TH2: 10
+D_TH1: 0
+D_TH2: 1
 printOutput: 1
 OutputName: testOut.csv
 printCMap: 1
