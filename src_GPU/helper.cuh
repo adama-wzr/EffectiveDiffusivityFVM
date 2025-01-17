@@ -419,8 +419,6 @@ int readCSV3D(options* opts, char* simObject)
         count++;
     }
 
-    printf("Count = %d\n", (int)count);
-
     long int index = 0;
 
     for(long int i = 0; i<count; i++)
@@ -429,14 +427,52 @@ int readCSV3D(options* opts, char* simObject)
         simObject[index] = phase[i];    // the diffusivities later are assigned based on this number
     }
 
-    printf("Pore = %lf\n", 1.0f - (double)count/nElements);
-
     // memory management
 
     free(x);
     free(y);
     free(z);
     free(phase);
+
+    return 0;
+}
+
+int SetDC3D(options* opts, meshInfo* mesh, double* DC, char* simObject)
+{
+    /*
+        Function SetDC3D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to DC, an array where the diffusion coefficients will be stored
+        Outputs:
+            - None.
+        The function will set the diffusion coefficient of the grid. 
+    */
+    
+    for(int k = 0; k<mesh->numCellsZ; k++)
+    {
+        for(int i = 0; i<mesh->numCellsY; i++)
+        {
+            for(int j = 0; j<mesh->numCellsX; j++)
+            {
+                // index for original array
+                int targetRow = i / opts->MeshIncreaseY;
+                int targetCol = j / opts->MeshIncreaseX;
+                int targetSlice = k / opts->MeshIncreaseZ;
+                int targetIndex = targetSlice*opts->height*opts->width 
+                            + targetRow*opts->width + targetCol;
+                // index for array with meshAmp
+                int index = k*mesh->numCellsX*mesh->numCellsY
+                            +i*mesh->numCellsX + j;
+                // Identify phase and diffusion coefficient
+                int localPhase = simObject[targetIndex];
+                double localDC = opts->DC[localPhase];
+                // Store data
+                DC[index] = localDC;
+            }
+        }
+    }
 
     return 0;
 }
@@ -479,7 +515,24 @@ int SteadyStateSim3D(options* opts)
 
     readCSV3D(opts, simObject);
 
-    printf("Success??\n");
+    // Declare and define BC's and DC's for the domain
+
+    double *DC = (double *)malloc(sizeof(double)*mesh.nElements);
+    char *BC   = (char *)  malloc(sizeof(char)*(mesh.numCellsX + 2) * 
+                            (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
+    double *BC_Value = (double *)malloc(sizeof(double)*(mesh.numCellsX + 2) * 
+                            (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
+    
+    memset(DC, 0, mesh.nElements*sizeof(double));
+    memset(BC, 0, (mesh.numCellsX + 2)*(mesh.numCellsY + 2)
+                    *(mesh.numCellsZ + 2)*sizeof(char));
+    memset(BC_Value, 0, (mesh.numCellsX + 2)*(mesh.numCellsY + 2)
+                    *(mesh.numCellsZ + 2)*sizeof(double));
+
+    // note BC array has space for ``ghost'' grid boundaries
+
+    SetDC3D(opts, &mesh, DC, simObject);
+
     return 0;
 }
 
