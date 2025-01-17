@@ -21,7 +21,8 @@ This list reflects what we tested on and can confirm that runs properly, but old
 - NVIDIA Compute capability >= 8.6
 - CUDA >= 11.5
 - gcc >= 11.4
-- [stb_image](https://github.com/nothings/stb) latest version
+- C++17 or newer
+- [stb_image](https://github.com/nothings/stb) any recent version
 
 The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Linux 8.7.
 
@@ -30,8 +31,16 @@ The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Lin
 With the NVIDIA suite installed properly and already added to the path, also assuming all required files are in the same folder.
 
 ```bash
-nvcc Perm2D.cu
+nvcc main.cu
 ```
+
+If getting errors related to std library, that is likely due to multiple C++ versions being present. Add the following flag to compilation:
+
+```bash
+nvcc -std=c++17 main.cu
+```
+So far this has only been an issue on Windows.
+
 ## Required Files
 
 All these files have to be in the same folder (or in the path for compilation/run).
