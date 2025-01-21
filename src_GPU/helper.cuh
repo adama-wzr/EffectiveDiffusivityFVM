@@ -186,6 +186,8 @@ int printOptions(options* opts)
             printf("Output File Name: %s\n", opts->outputFilename);
         }
     }
+
+    printf("--------------------------------------\n\n");
     return 0;
 }
 
@@ -777,6 +779,45 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
 
 }
 
+int DiscSS3D_Simple(options*        opts,
+                    meshInfo*       mesh,
+                    int*            BC,
+                    double*         BC_Value,
+                    double*         DC,
+                    double*         CoeffMatrix,
+                    double*         RHS)
+{
+    /*
+        Function DiscSS3D_Simple:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to integer array BC holding BC types
+            - pointer to double array BC_Value holding BC values
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization based on user entered information and boundary conditions,
+        and it stores the discretized matrix in the array CoeffMatrix and the RHS on the RHS array.
+        Boundary condition choice can be flexible, but this function is primarily for steady-state
+        simulations.
+    */
+    int nCols, nRows, nSlices;
+    nCols = mesh->numCellsX;
+    nRows = mesh->numCellsY;
+    nSlices = mesh->numCellsZ;
+
+    double dx, dy, dz;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dz = mesh->dz;
+
+    return 0;
+}
+
 int SteadyStateSim3D(options* opts)
 {
     /*
@@ -818,7 +859,7 @@ int SteadyStateSim3D(options* opts)
     // Declare and define BC's and DC's for the domain
 
     double *DC = (double *)malloc(sizeof(double)*mesh.nElements);
-    char *BC   = (char *)  malloc(sizeof(char)*(mesh.numCellsX + 2) * 
+    char   *BC = (char *)  malloc(sizeof(char)*(mesh.numCellsX + 2) * 
                             (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
     double *BC_Value = (double *)malloc(sizeof(double)*(mesh.numCellsX + 2) * 
                             (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
@@ -857,6 +898,33 @@ int SteadyStateSim3D(options* opts)
     // If any phase is impermeable, need to find all participating media
 
     FloodFill3D_DeffSetup(&mesh, BC, DC);
+
+    // Allocate arrays for holding discretized equations
+
+    double* CoeffMatrix     = (double *)malloc(mesh.nElements * 7 * sizeof(double));
+    double* RHS             = (double *)malloc(mesh.nElements * sizeof(double));
+    double* Concentration   = (double *)malloc(mesh.nElements * sizeof(double));
+    
+    // initialize the memory
+
+    memset(CoeffMatrix  , 0, mesh.nElements * sizeof(double));
+    memset(RHS          , 0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0, mesh.nElements * sizeof(double));
+
+    // Discretize
+
+
+    // Memory management
+
+    free(RHS);
+    free(CoeffMatrix);
+    free(Concentration);
+
+    free(BC);
+    free(BC_Value);
+    free(DC);
+
+    free(simObject);
 
     return 0;
 }
