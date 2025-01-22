@@ -5,8 +5,8 @@ inputType: 0
 width: 128
 height: 128
 depth: 128
-D1: 0
-D2: 4e-5
+D1: 4e-5
+D2: 0
 D_TH1: 0
 D_TH2: 1
 printOutput: 1
@@ -14,9 +14,10 @@ OutputName: testOut.csv
 printCMap: 1
 CMapName: testCMap.csv
 SS: 1
-Convergence: 1e-6
+Convergence: 1e-5
 MaxIter: 1e5
 CL: 0
 CR: 1
 InputName: Schwarz091.csv
+nThreads: 16
 Verbose: 1

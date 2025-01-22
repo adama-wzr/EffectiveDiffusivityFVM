@@ -43,7 +43,7 @@ typedef struct
 {
 	double *DC;                 // array with diffusion coefficients
     unsigned char *DC_TH;       // Upper limit threshold for phase differentiation when reading jpg's
-    int numDC;               // number of diffusion coefficients
+    int numDC;                  // number of diffusion coefficients
 	int MeshIncreaseX;		    // Mesh refinement in x-direction
 	int MeshIncreaseY;		    // Mesh refinement in y-direction
     int MeshIncreaseZ;          // Mesh refinement in the z-direction
@@ -63,7 +63,8 @@ typedef struct
     int height;                 // height in number of pixels
     int width;                  // width in number of pixels
     int depth;                  // depth in number of pixels
-    int nD;                  // number of dimensions
+    int nD;                     // number of dimensions
+    int nThreads;               // number of threads
     char inputType;             // Input format for 3D simulations (0 default .csv, 1 is stack)
 } options;
 
@@ -186,6 +187,7 @@ int printOptions(options* opts)
         {
             printf("Output File Name: %s\n", opts->outputFilename);
         }
+        printf("Number of Threads = %d\n", opts->nThreads);
     }
 
     printf("--------------------------------------\n\n");
@@ -235,6 +237,8 @@ void readInputGeneral(char* FileName, options* opts){
 
     opts->BatchFlag = 0;
     opts->inputType = 0;
+
+    opts->nThreads = 1;
 
     /*
     --------------------------------------------------------------------------------
@@ -356,6 +360,10 @@ void readInputGeneral(char* FileName, options* opts){
         else if(strcmp(tempC, "printOutput:") == 0)
         {
             opts->printOut = (int)tempD;
+        }
+        else if(strcmp(tempC,"nThreads:") == 0)
+        {
+            opts->nThreads = (int)tempD;
         }
 
         // Update the number of expected diffusion coefficients and thresholding for image
@@ -632,11 +640,6 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, int* BC, double* DC)
         }
     }
 
-    int nRows, nCols, nSlices;
-    nCols = mesh->numCellsX + 2;
-    nRows = mesh->numCellsY + 2;
-    nSlices = mesh->numCellsZ + 2;
-
     // Find Fluid in both boundaries, add to open list
 
     std::set<coord> cList;
@@ -839,10 +842,9 @@ int DiscSS3D_Simple(options*        opts,
         Boundary condition choice can be flexible, but this function is primarily for steady-state
         simulations.
     */
-    int nCols, nRows, nSlices;
+    int nCols, nRows;
     nCols = mesh->numCellsX;
     nRows = mesh->numCellsY;
-    nSlices = mesh->numCellsZ;
 
     double dx, dy, dz;
     dx = mesh->dx;
@@ -1092,18 +1094,21 @@ int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
         }
 
         iterCount++;
-        // printf("Iter Count = %ld\n", iterCount);
         if(iterCount % iterToCheck == 0)
         {
             double sum = 0;
-            // #pragma omp parallel for reduction(+:sum)
+            #pragma omp parallel for reduction(+:sum)
             for(i = 0; i<mesh->nElements; i++)
             {
                 if(Concentration[i] < 1e-5) continue;
                 sum += fabs((Concentration[i] - Check[i])/Concentration[i]);
             }
             pctChange = sum/mesh->nElements;
-            printf("Pct change = %1.3e\n", pctChange);
+            if (iterCount % 10000 == 0)
+            {
+                printf("Iter = %ld, Pct change = %1.3e\n", iterCount, pctChange);
+            }
+            
             memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
         }
     }
@@ -1126,9 +1131,8 @@ int SteadyStateSim3D(options* opts)
     */
 
     // Initialize simulation data structures
+   
     meshInfo mesh;
-
-    simulationInfo simInfo;
 
     // populate mesh info with available information
 
@@ -1224,7 +1228,7 @@ int SteadyStateSim3D(options* opts)
 
     // will do a CPU solve first, depending how that goes we will implement the GPU solve later
 
-    omp_set_num_threads(16);
+    omp_set_num_threads(opts->nThreads);
 
     GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
 
