@@ -443,6 +443,25 @@ int readCSV3D(options* opts, char* simObject)
     return 0;
 }
 
+double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
+{
+    /*
+        WeightedHarmonicMean Function:
+        Inputs:
+            - w1: weight of the first number
+            - w2: weight of the second number
+            - x1: first number of the mean
+            - x2: second number of the mean
+        Outputs:
+            - H: weighted harmonic mean
+        
+        The function will calculate the weighted harmonic mean of two numbers, x1 and x2,
+        subject to weights w1 and w2.
+    */
+    double H = (w1 + w2)/(w1/x1 + w2/x2);
+    return H;
+}
+
 int SetDC3D(options* opts, meshInfo* mesh, double* DC, char* simObject)
 {
     /*
@@ -591,9 +610,10 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
     for(long int index = 0; index < mesh->nElements; index++)
     {
         int slice = index/(mesh->numCellsX*mesh->numCellsY);
-        int row = (index - slice*mesh->numCellsX*mesh->numCellsY);
+        int row = (index - slice*mesh->numCellsX*mesh->numCellsY)/mesh->numCellsX;
         int col = (index - slice*mesh->numCellsX*mesh->numCellsY - row*mesh->numCellsX);
-        int indexBC = (slice + 1)*mesh->numCellsX*mesh->numCellsY + (row + 1)*mesh->numCellsX + (col + 1);
+        long int indexBC = (slice + 1)*(mesh->numCellsX + 2)*(mesh->numCellsY + 2) +
+                        (row + 1)*(mesh->numCellsX + 2) + (col + 1);
         if(DC[index] < 1e-15)
         {
             Domain[index] = 1;
@@ -609,7 +629,7 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
     std::set<coord> cList;
 
     int left = 0;
-    int right = mesh->numCellsX;
+    int right = mesh->numCellsX - 1;
 
     for(int row = 0; row < mesh->numCellsY; row++)
     {
@@ -767,7 +787,8 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
         int slice = index/(mesh->numCellsX*mesh->numCellsY);
         int row = (index - slice*mesh->numCellsX*mesh->numCellsY);
         int col = (index - slice*mesh->numCellsX*mesh->numCellsY - row*mesh->numCellsX);
-        int indexBC = (slice + 1)*mesh->numCellsX*mesh->numCellsY + (row + 1)*mesh->numCellsX + (col + 1);
+        int indexBC = (slice + 1)*(mesh->numCellsX + 2)*(mesh->numCellsY + 2) +
+                        (row + 1)*(mesh->numCellsX + 2) + (col + 1);
 
         BC[indexBC] = -1;
     }
@@ -781,7 +802,7 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
 
 int DiscSS3D_Simple(options*        opts,
                     meshInfo*       mesh,
-                    int*            BC,
+                    char*           BC,
                     double*         BC_Value,
                     double*         DC,
                     double*         CoeffMatrix,
@@ -814,6 +835,208 @@ int DiscSS3D_Simple(options*        opts,
     dx = mesh->dx;
     dy = mesh->dy;
     dz = mesh->dz;
+
+    int row, col, slice;
+    long int BC_index;
+    double dw, de, ds, dn, df, db;
+
+    for(long int i = 0; i < mesh->nElements; i++)
+    {
+        // printf("i = %ld\n", i);
+        // read the index into slice, row, and col
+        slice   = i/(nRows*nCols);
+        row     = (i - slice*nRows*nCols)/nCols;
+        col     = (i - slice*nRows*nCols + row*nCols);
+
+        BC_index = (slice + 1)*(nCols + 2)*(nRows + 2) +
+                    (row + 1)*(nCols + 2) + nCols + 1;
+        // make sure RHS and CoeffMatrix are initialized
+        RHS[i] = 0;
+        for(int k = 0; k < 7; k++)
+        {
+            CoeffMatrix[i*7 + k] = 0;
+        }
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+        if(BC[BC_index] == -1)
+        {
+            // 1*phi = 0;
+            CoeffMatrix[i*7 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Maybe that isn't necessary
+
+        // ****************************************
+
+        // Account for all boundaries
+
+        // ****************************************
+
+        // Check if this is a source/sink via Neumann BC
+        if(BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // 1*phi = 0;
+            CoeffMatrix[i*7 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+            5 : B       i + nCols * nRows
+            6 : F       i - nCols * nRows
+
+        */
+
+        // West
+
+        if(BC[BC_index - 1] == 0)
+        {
+            // west is not a bounary, proceed normally
+            dw = WeightedHarmonicMean(dx/2, dx/2, DC[i], DC[i - 1]);
+            CoeffMatrix[i*7 + 1] = dw*(dy*dz)/dx;
+            CoeffMatrix[i*7 + 0] -= dw*(dy*dz)/dx;
+        }
+        else if(BC[BC_index - 1] == 1)
+        {
+            // west is fixed concentration boundary
+            dw = DC[i];
+            CoeffMatrix[i*7 + 0] -= dw*(dy*dz)/(dx/2);
+            RHS[i] -= BC_Value[BC_index - 1]*dw*(dy*dz)/(dx/2); 
+        }
+        else if(BC[BC_index - 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index - 1]*(dy*dz);
+        }   // other BC's not implemented yet
+
+        // East
+
+        if(BC[BC_index + 1] == 0)
+        {
+            // east is not a boundary
+            de = WeightedHarmonicMean(dx/2, dx/2, DC[i], DC[i + 1]);
+            CoeffMatrix[i*7 + 2] = de*(dy*dz)/dx;
+            CoeffMatrix[i*7 + 0] -= de*(dy*dz)/dx;
+        }
+        else if(BC[BC_index + 1] == 1)
+        {
+            // fixed concentration BC
+            de = DC[i];
+            CoeffMatrix[i*7 + 0] -= dw*(dy*dz)/(dx/2);
+            RHS[i] -= BC_Value[BC_index + 1]*dw*(dy*dz)/(dx/2);
+        }
+        else if(BC[BC_index] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index + 1]*(dy*dz);
+        }   // other BC's not implemented yet
+
+        // South
+
+        if(BC[BC_index + (nCols + 2)] == 0)
+        {
+            // south is not a boundary
+            ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + nCols]);
+            CoeffMatrix[i*7 + 3] = ds*(dx*dz)/dy;
+            CoeffMatrix[i*7 + 0] -= ds*(dx*dz)/dy;
+        }
+        else if(BC[BC_index + (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            ds = DC[i];
+            CoeffMatrix[i*7 + 0] -= ds*(dx*dz)/(dy/2);
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)]*ds*(dx*dz)/(dy/2);
+        }
+        else if(BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)]*(dx*dz);
+        }
+
+        // North
+
+        if(BC[BC_index - (nCols + 2)] == 0)
+        {
+            // north is not a boundary
+            dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - nCols]);
+            CoeffMatrix[i*7 + 4] = dn*(dx*dz)/dy;
+            CoeffMatrix[i*7 + 0] -= dn*(dx*dz)/dy;
+        }
+        else if(BC[BC_index - (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            dn = DC[i];
+            CoeffMatrix[i*7 + 0] -= dn*(dx*dz)/(dy/2);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)]*dn*(dx*dz)/(dy/2);
+        }
+        else if(BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)]*(dx*dz);
+        }
+
+        // Back
+
+        if(BC[BC_index + (nCols + 2)*(nRows + 2)] == 0)
+        {
+            // back is not a boundary
+            db = WeightedHarmonicMean(dz/2, dz/2, DC[i], DC[i + nRows*nCols]);
+            CoeffMatrix[i*7 + 5] = db*(dx*dy)/dz;
+            CoeffMatrix[i*7 + 0] -= db*(dx*dy)/dz;
+        }
+        else if(BC[BC_index + (nCols + 2)*(nRows + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            db = DC[i];
+            CoeffMatrix[i*7 + 0] -= db*(dx*dy)/(dz/2);
+            RHS[i] -= BC[BC_index + (nCols + 2)*(nRows + 2)]*db*(dx*dy)/(dz/2);
+        }
+        else if(BC[BC_index + (nCols + 2)*(nRows + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC[BC_index + (nCols + 2)*(nRows + 2)]*(dx*dy);
+        }
+
+        // Front
+
+        if(BC[BC_index - (nCols + 2)*(nRows + 2)] == 0)
+        {
+            // front is not a boundary
+            df = WeightedHarmonicMean(dz/2, dz/2, DC[i], DC[i - nRows*nCols]);
+            CoeffMatrix[i*7 + 6] = df*(dx*dy)/dz;
+            CoeffMatrix[i*7 + 0] -= df*(dx*dy)/dz;
+        }
+        else if(BC[BC_index - (nCols + 2)*(nRows + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            df = DC[i];
+            CoeffMatrix[i*7 + 0] -= df*(dx*dy)/(dz/2);
+            RHS[i] -= BC[BC_index - (nCols + 2)*(nRows + 2)]*df*(dx*dy)/(dz/2);
+        }
+        else if(BC[BC_index - (nCols + 2)*(nRows + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC[BC_index - (nCols + 2)*(nRows + 2)]*(dx*dy);
+        }
+
+        // end
+
+    }
 
     return 0;
 }
@@ -899,6 +1122,7 @@ int SteadyStateSim3D(options* opts)
 
     FloodFill3D_DeffSetup(&mesh, BC, DC);
 
+
     // Allocate arrays for holding discretized equations
 
     double* CoeffMatrix     = (double *)malloc(mesh.nElements * 7 * sizeof(double));
@@ -907,12 +1131,13 @@ int SteadyStateSim3D(options* opts)
     
     // initialize the memory
 
-    memset(CoeffMatrix  , 0, mesh.nElements * sizeof(double));
+    memset(CoeffMatrix  , 0, mesh.nElements * sizeof(double) * 7);
     memset(RHS          , 0, mesh.nElements * sizeof(double));
     memset(Concentration, 0, mesh.nElements * sizeof(double));
 
     // Discretize
 
+    DiscSS3D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
 
     // Memory management
 
