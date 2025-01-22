@@ -37,6 +37,7 @@ Last Update:
 #include <string>
 #include "cuda_runtime.h"
 #include "cuda.h"
+#include <omp.h>
 
 typedef struct
 {
@@ -502,7 +503,14 @@ int SetDC3D(options* opts, meshInfo* mesh, double* DC, char* simObject)
     return 0;
 }
 
-int SetBC_DeffSetup3D(options* opts, meshInfo* mesh, char* BC, double* BC_Value)
+
+// int visualDebug(meshInfo* mesh, double* BC_Value, int* BC, double* DC)
+// {
+
+// }
+
+
+int SetBC_DeffSetup3D(options* opts, meshInfo* mesh, int* BC, double* BC_Value)
 {
     /*
         Function SetBC_DeffSetup:
@@ -529,13 +537,13 @@ int SetBC_DeffSetup3D(options* opts, meshInfo* mesh, char* BC, double* BC_Value)
     int right, left, top, bottom, front, back;
 
     left = 0;
-    right = mesh->numCellsX + 1;
+    right = nCols - 1;
 
     top = 0;
-    bottom = mesh->numCellsY + 1;
+    bottom = nRows - 1;
 
     front = 0;
-    back = mesh->numCellsZ + 1;
+    back = nSlices - 1;
 
     // right and left boundaries (Dirichlet)
 
@@ -587,7 +595,7 @@ int SetBC_DeffSetup3D(options* opts, meshInfo* mesh, char* BC, double* BC_Value)
     return 0;
 }
 
-int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
+int FloodFill3D_DeffSetup(meshInfo* mesh, int* BC, double* DC)
 {
     /*
         FloddFill3D_DeffSetup function:
@@ -614,7 +622,7 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
         int col = (index - slice*mesh->numCellsX*mesh->numCellsY - row*mesh->numCellsX);
         long int indexBC = (slice + 1)*(mesh->numCellsX + 2)*(mesh->numCellsY + 2) +
                         (row + 1)*(mesh->numCellsX + 2) + (col + 1);
-        if(DC[index] < 1e-15)
+        if(DC[index] == 0)
         {
             Domain[index] = 1;
             BC[indexBC] = 2;    // set BC to Neumann
@@ -623,6 +631,11 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
             Domain[index] = -1;
         }
     }
+
+    int nRows, nCols, nSlices;
+    nCols = mesh->numCellsX + 2;
+    nRows = mesh->numCellsY + 2;
+    nSlices = mesh->numCellsZ + 2;
 
     // Find Fluid in both boundaries, add to open list
 
@@ -785,7 +798,7 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
         if(Domain[index] != -1) continue;
 
         int slice = index/(mesh->numCellsX*mesh->numCellsY);
-        int row = (index - slice*mesh->numCellsX*mesh->numCellsY);
+        int row = (index - slice*mesh->numCellsX*mesh->numCellsY)/mesh->numCellsX;
         int col = (index - slice*mesh->numCellsX*mesh->numCellsY - row*mesh->numCellsX);
         int indexBC = (slice + 1)*(mesh->numCellsX + 2)*(mesh->numCellsY + 2) +
                         (row + 1)*(mesh->numCellsX + 2) + (col + 1);
@@ -802,7 +815,7 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, char* BC, double* DC)
 
 int DiscSS3D_Simple(options*        opts,
                     meshInfo*       mesh,
-                    char*           BC,
+                    int*            BC,
                     double*         BC_Value,
                     double*         DC,
                     double*         CoeffMatrix,
@@ -839,17 +852,16 @@ int DiscSS3D_Simple(options*        opts,
     int row, col, slice;
     long int BC_index;
     double dw, de, ds, dn, df, db;
-
     for(long int i = 0; i < mesh->nElements; i++)
     {
         // printf("i = %ld\n", i);
         // read the index into slice, row, and col
         slice   = i/(nRows*nCols);
         row     = (i - slice*nRows*nCols)/nCols;
-        col     = (i - slice*nRows*nCols + row*nCols);
+        col     = (i - slice*nRows*nCols - row*nCols);
 
         BC_index = (slice + 1)*(nCols + 2)*(nRows + 2) +
-                    (row + 1)*(nCols + 2) + nCols + 1;
+                    (row + 1)*(nCols + 2) + col + 1;
         // make sure RHS and CoeffMatrix are initialized
         RHS[i] = 0;
         for(int k = 0; k < 7; k++)
@@ -937,8 +949,8 @@ int DiscSS3D_Simple(options*        opts,
         {
             // fixed concentration BC
             de = DC[i];
-            CoeffMatrix[i*7 + 0] -= dw*(dy*dz)/(dx/2);
-            RHS[i] -= BC_Value[BC_index + 1]*dw*(dy*dz)/(dx/2);
+            CoeffMatrix[i*7 + 0] -= de*(dy*dz)/(dx/2);
+            RHS[i] -= BC_Value[BC_index + 1]*de*(dy*dz)/(dx/2);
         }
         else if(BC[BC_index] == 2)
         {
@@ -1009,7 +1021,7 @@ int DiscSS3D_Simple(options*        opts,
         else if(BC[BC_index + (nCols + 2)*(nRows + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] -= BC[BC_index + (nCols + 2)*(nRows + 2)]*(dx*dy);
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)*(nRows + 2)]*(dx*dy);
         }
 
         // Front
@@ -1031,13 +1043,72 @@ int DiscSS3D_Simple(options*        opts,
         else if(BC[BC_index - (nCols + 2)*(nRows + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] -= BC[BC_index - (nCols + 2)*(nRows + 2)]*(dx*dy);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)*(nRows + 2)]*(dx*dy);
         }
 
         // end
-
     }
 
+    return 0;
+}
+
+int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, meshInfo *mesh)
+{
+
+    long int iterCount = 0;
+    double sigma = 0;
+    double pctChange = 1;
+    int i;
+    int iterToCheck = 100;
+    int offset[7];
+    // set array offsets
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+    offset[5] = mesh->numCellsX*mesh->numCellsY;
+    offset[6] = -mesh->numCellsX*mesh->numCellsY;
+
+    double *Check = (double *)malloc(sizeof(double)*mesh->nElements);
+    memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
+
+    printf("Starting Main Loop\n");
+
+    #pragma omp parallel private(i, sigma)
+
+    while(pctChange > opts->ConvergeCriteria && iterCount < opts->MAX_ITER)
+    {
+        #pragma omp parallel for
+        for(i = 0; i<mesh->nElements; i++)
+        {
+            sigma = 0;
+            for(int j = 1; j < 7; j++)
+            {
+                if(Coeff[i*7 + j] == 0) continue;
+                sigma += Coeff[i*7 + j] * Concentration[i + offset[j]];
+            }
+            Concentration[i] = 1.0/Coeff[i*7 + 0]*(RHS[i] - sigma);
+        }
+
+        iterCount++;
+        // printf("Iter Count = %ld\n", iterCount);
+        if(iterCount % iterToCheck == 0)
+        {
+            double sum = 0;
+            // #pragma omp parallel for reduction(+:sum)
+            for(i = 0; i<mesh->nElements; i++)
+            {
+                if(Concentration[i] < 1e-5) continue;
+                sum += fabs((Concentration[i] - Check[i])/Concentration[i]);
+            }
+            pctChange = sum/mesh->nElements;
+            printf("Pct change = %1.3e\n", pctChange);
+            memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
+        }
+    }
+
+    free(Check);
     return 0;
 }
 
@@ -1082,14 +1153,14 @@ int SteadyStateSim3D(options* opts)
     // Declare and define BC's and DC's for the domain
 
     double *DC = (double *)malloc(sizeof(double)*mesh.nElements);
-    char   *BC = (char *)  malloc(sizeof(char)*(mesh.numCellsX + 2) * 
+    int   *BC = (int *)  malloc(sizeof(int)*(mesh.numCellsX + 2) * 
                             (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
     double *BC_Value = (double *)malloc(sizeof(double)*(mesh.numCellsX + 2) * 
                             (mesh.numCellsX + 2) * (mesh.numCellsX + 2));
     
     memset(DC, 0, mesh.nElements*sizeof(double));
     memset(BC, 0, (mesh.numCellsX + 2)*(mesh.numCellsY + 2)
-                    *(mesh.numCellsZ + 2)*sizeof(char));
+                    *(mesh.numCellsZ + 2)*sizeof(int));
     memset(BC_Value, 0, (mesh.numCellsX + 2)*(mesh.numCellsY + 2)
                     *(mesh.numCellsZ + 2)*sizeof(double));
 
@@ -1108,9 +1179,10 @@ int SteadyStateSim3D(options* opts)
     for(int index = 0; index<mesh.nElements; index++)
     {
         int slice = index/(mesh.numCellsX*mesh.numCellsY);
-        int row = (index - slice*mesh.numCellsX*mesh.numCellsY);
+        int row = (index - slice*mesh.numCellsX*mesh.numCellsY)/mesh.numCellsX;
         int col = (index - slice*mesh.numCellsX*mesh.numCellsY - row*mesh.numCellsX);
-        int indexBC = (slice + 1)*mesh.numCellsX*mesh.numCellsY + (row + 1)*mesh.numCellsX + (col + 1);
+        int indexBC = (slice + 1)*(mesh.numCellsX + 2)*(mesh.numCellsY + 2) 
+                        + (row + 1)*(mesh.numCellsX + 2) + (col + 1);
         if(DC[index] < 1e-15)
         {
             DC[index] = 0;
@@ -1135,9 +1207,42 @@ int SteadyStateSim3D(options* opts)
     memset(RHS          , 0, mesh.nElements * sizeof(double));
     memset(Concentration, 0, mesh.nElements * sizeof(double));
 
+    // Linear initialize concentration
+
+    for(int i = 0; i<mesh.nElements; i++)
+    {
+        int slice = i/(mesh.numCellsX*mesh.numCellsY);
+        int row = (i - slice*mesh.numCellsX*mesh.numCellsY)/mesh.numCellsX;
+        int col = (i - slice*mesh.numCellsX*mesh.numCellsY - row*mesh.numCellsX);
+        Concentration[i] = ((double)col/mesh.numCellsX)*opts->CRight;
+    }
     // Discretize
 
     DiscSS3D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
+
+    // Solve!
+
+    // will do a CPU solve first, depending how that goes we will implement the GPU solve later
+
+    omp_set_num_threads(16);
+
+    GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+
+    FILE* OUT;
+
+    OUT = fopen("ConDist.csv", "w");
+    fprintf(OUT,"x,y,z,c\n");
+    for(int i = 0; i<mesh.numCellsY; i++)
+    {
+        for(int j = 0; j<mesh.numCellsX; j++)
+        {
+            for(int k = 0; k<mesh.numCellsZ; k++){
+                fprintf(OUT,"%d,%d,%d,%1.3e\n",j,i,k,Concentration[k*mesh.numCellsX*mesh.numCellsY + i*mesh.numCellsX + j]);
+            }
+        }
+    }
+
+    fclose(OUT);
 
     // Memory management
 
