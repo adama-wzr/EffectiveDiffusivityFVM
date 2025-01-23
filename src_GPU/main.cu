@@ -1,11 +1,32 @@
 #include "helper.cuh"
 
-int main(int argc, int *argv[])
+int main(int argc, char **argv)
 {
-    // set env variables
-    fflush(stdout);
-    // Main file will call different models
-    test();
+    // Important call for efficiency on Linux
+	fflush(stdout);
+
+	//	Declare data structure
+	options opts;
+
+	char inputFilename[30];
+
+	sprintf(inputFilename, "input.txt");
+
+    readInputGeneral(inputFilename, &opts);
+
+    // Do some checks to make sure the input was ok
+
+    
+
+    if(opts.verbose) printOptions(&opts);
+
+    if(opts.nD == 3)
+    {
+        if(opts.SteadyStateFlag == 1)
+        {
+            SteadyStateSim3D(&opts);
+        }
+    }
     
     return 0;
 }

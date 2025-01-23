@@ -1,8 +1,8 @@
 # EffectiveDiffusivityFVM
 
-This repository is dedicated to the simulation of effective diffusivity in 2D structures via the Finite Volume Method (FVM). This approach was designed for maximum efficiency when generating large datasets for machine learning applications, thus uses the pixel resolution of the image as the base mesh for the simulation. Below is basic information on how to compile and run this code. For more detailed information about the code itself, refer to the documentation pdf.
+This repository is dedicated to the simulation of effective diffusivity in 2D and 3D structures via the Finite Volume Method (FVM). This approach was designed for maximum efficiency when generating large datasets for machine learning applications, thus uses the pixel resolution of the image as the base mesh for the simulation. Below is basic information on how to compile and run this code. 
 
-This repository includes one code version only: it is meant to run on a CUDA-capable GPU. However, if there is a need for another mode, please contact one of the authors as it is easy to make changes (GPU vs. CPU) as they only affect the solver, not the numerical model.
+For more detailed information about the code itself, refer to the documentation [pdf](https://github.com/adama-wzr/EffectiveDiffusivityFVM/blob/ExperimentalBranch/Deff2DGPU/Effective%20Diffusivity%20Documentation.pdf).
 
 # Table of Contents
 
@@ -21,22 +21,31 @@ This list reflects what we tested on and can confirm that runs properly, but old
 - NVIDIA Compute capability >= 8.6
 - CUDA >= 11.5
 - gcc >= 11.4
-- [stb_image](https://github.com/nothings/stb) latest version
+- C++17 or newer
+- [stb_image](https://github.com/nothings/stb) any recent version
 
 The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Linux 8.7.
 
 ## GPU Compilation
 
-With the NVIDIA suite installed properly and already added to the path, also assuming all required files are in the same folder.
+With the NVIDIA suite installed properly and already added to the path, also assuming all required files are in the same folder. There might be different requirements loading the OpenMP library. On Windows, use the following:
 
 ```bash
-nvcc Deff2D.cu
+nvcc -Xcompiler -openmp main.cu
 ```
+
+If getting errors related to std library, that is likely due to multiple C++ versions being present. Add the following flag to compilation:
+
+```bash
+nvcc -std=c++17 -Xcompiler -openmp main.cu
+```
+This is mainly an issue on Windows. Any version that is C++17 or more recent should work.
+
 ## Required Files
 
 All these files have to be in the same folder (or in the path for compilation/run).
 
-- 2D grayscale .jpg image.
+- 2D grayscale .jpg image, 3D stack, or 3D structure saved as .csv
 - Main Deff2D file (.cpp or .cu)
 - Helper Deff2D file (.h or .cuh)
 - input.txt
@@ -44,7 +53,7 @@ All these files have to be in the same folder (or in the path for compilation/ru
 
 ## How to Cite
 
-Please cite one of the relevant publications shown below:
+Please cite one of the relevant publications shown below (more coming):
 
 - Sarabandi, A., Adam, A., & Li, X. (2024). Influence of Electrolyte Saturation on the Performance of Li-O2 Batteries. ACS Applied Materials and Interfaces. https://doi.org/10.1021/acsami.4c12168
 
@@ -60,7 +69,7 @@ Please cite one of the relevant publications shown below:
 
  ## Documentation
 
-The publication is an excellent source of basic information on the formulation and validation. The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository.
+The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository.
 
 ## Acknowledgements
 
