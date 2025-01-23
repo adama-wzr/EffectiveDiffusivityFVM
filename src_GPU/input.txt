@@ -1,14 +1,13 @@
 Example Input File:
-nD: 3
-numDC: 2
-inputType: 0
-width: 128
-height: 128
-depth: 128
-D1: 4e-5
-D2: 0
-D_TH1: 0
-D_TH2: 1
+nD: 2
+numDC: 3
+inputType: 2
+D1: 1
+D2: 4e-5
+D3: 0
+D_TH1: 16
+D_TH2: 164
+D_TH3: 255
 printOutput: 1
 OutputName: testOut.csv
 printCMap: 1
@@ -18,6 +17,6 @@ Convergence: 1e-5
 MaxIter: 1e5
 CL: 0
 CR: 1
-InputName: Schwarz091.csv
+InputName: 00010.jpg
 nThreads: 16
 Verbose: 1

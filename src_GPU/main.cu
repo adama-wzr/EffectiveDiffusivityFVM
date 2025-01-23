@@ -27,6 +27,13 @@ int main(int argc, char **argv)
             SteadyStateSim3D(&opts);
         }
     }
+    else if(opts.nD == 2)
+    {
+        if(opts.SteadyStateFlag == 1)
+        {
+            SteadyStateSim2D(&opts);
+        }
+    }
     
     return 0;
 }
