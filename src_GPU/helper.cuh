@@ -513,6 +513,7 @@ int readImg2D(options* opts, meshInfo* mesh, char*& simObject)
                 if (target_data[targetIdx] <= opts->DC_TH[p])
                 {
                     simObject[row*mesh->numCellsX + col] = p;
+                    break;
                 }
             }
         }
@@ -570,7 +571,6 @@ int SetDC2D(options* opts, meshInfo* mesh, double* DC, char* simObject)
             DC[i*mesh->numCellsX + j] = opts->DC[localPhase];
         }
     }
-
     return 0;
 }
 
@@ -651,17 +651,19 @@ int SetBC_DeffSetup2D(options* opts, meshInfo* mesh, int* BC, double* BC_Value)
     top = 0;
     bottom = nRows - 1;
 
-    // set Dirichlet boundaries
+    // set Dirichlet boundaries only if DC[i] != 0
 
     for(int i = 0; i < nRows; i++)
     {
+
         // right side
-        BC[i*nCols + right] = 1;
+        BC[i*nCols + right] = 1;                    // Dirichlet
         BC_Value[i*nCols + right] = opts->CRight;
 
         // left side
-        BC[i*nCols + left] = 1;
-        BC_Value[i*nCols + right] = opts->CLeft;
+        BC[i*nCols + left] = 1;                     // Dirichlet
+        BC_Value[i*nCols + left] = opts->CLeft;
+
     }
 
     // set Neumann boundaries
@@ -838,8 +840,8 @@ int FloodFill2D_DeffSetup(meshInfo* mesh, int* BC, double* DC)
 
         // read coordinates
 
-        int row = pop.first;
-        int col = pop.second;
+        int col = pop.first;
+        int row = pop.second;
 
         /*
             We need to check North, South, East, and West for more fluid:
@@ -1157,6 +1159,203 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, int* BC, double* DC)
 
 }
 
+int DiscSS2D_Simple(options*        opts,
+                    meshInfo*       mesh,
+                    int*            BC,
+                    double*         BC_Value,
+                    double*         DC,
+                    double*         CoeffMatrix,
+                    double*         RHS)
+{
+    /*
+        Function DiscSS2D_Simple:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to integer array BC holding BC types
+            - pointer to double array BC_Value holding BC values
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization based on user entered information and boundary conditions,
+        and it stores the discretized matrix in the array CoeffMatrix and the RHS on the RHS array.
+        Boundary condition choice can be flexible, but this function is primarily for steady-state
+        simulations.
+    */
+
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy;
+    dx = mesh->dx;
+    dy = mesh->dy;
+
+    int row, col;
+    long int BC_index;
+    double dw, de, ds, dn;
+
+    for(long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row*nCols;
+
+        // get the equivalent index for BC's
+        BC_index = (row + 1)*(nCols + 2) + (col + 1);
+        
+        // make sure CoeffMatrix and RHS are zero
+        
+        RHS[i] = 0;
+        for(int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i*5 + k] = 0;
+        }
+
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+
+        if(BC[BC_index] == -1)
+        {
+            // 1*phi = 0;
+            CoeffMatrix[i*5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Maybe that isn't necessary
+
+        // ****************************************
+
+        // Account for all boundaries
+
+        // ****************************************
+
+        // Check if this is a source/sink via Neumann BC
+
+        if(BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // 1*phi = 0;
+            CoeffMatrix[i*5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // West
+
+        if(BC[BC_index - 1] == 0)
+        {
+            // west is not a boundary, proceed normally
+            dw = WeightedHarmonicMean(dx/2, dx/2, DC[i], DC[i - 1]);
+            CoeffMatrix[i*5 + 1] = dw*(dy)/dx;
+            CoeffMatrix[i*5 + 0] -= dw*(dy)/dx;
+        }
+        else if(BC[BC_index - 1] == 1)
+        {
+            // west is fixed concentration boundary
+            dw = DC[i];
+            CoeffMatrix[i*5 + 0] -= dw*(dy)/(dx/2);
+            RHS[i] -= BC_Value[BC_index - 1]*dw*(dy)/(dx/2); 
+        }
+        else if(BC[BC_index - 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index - 1]*(dy);
+        }   // other BC's not implemented yet
+
+        // East
+
+        if(BC[BC_index + 1] == 0)
+        {
+            // east is not a boundary, proceed normally
+            de = WeightedHarmonicMean(dx/2, dx/2, DC[i], DC[i + 1]);
+            CoeffMatrix[i*5 + 2] = de*(dy)/dx;
+            CoeffMatrix[i*5 + 0] -= de*(dy)/dx;
+        }
+        else if(BC[BC_index + 1] == 1)
+        {
+            // west if fixed concentration
+            de = DC[i];
+            CoeffMatrix[i*5 + 0] -= de*(dy)/(dx/2);
+            RHS[i] -= BC_Value[BC_index + 1]*de*(dy)/(dx/2);
+        }
+        else if(BC[BC_index + 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index + 1]*(dy);
+        }
+
+        // South
+
+        if(BC[BC_index + (nCols + 2)] == 0)
+        {
+            // south is not a boundary
+            ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + nCols]);
+            CoeffMatrix[i*5 + 3] = ds*(dx)/dy;
+            CoeffMatrix[i*5 + 0] -= ds*(dx)/dy;
+        }
+        else if(BC[BC_index + (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            ds = DC[i];
+            CoeffMatrix[i*5 + 0] -= ds*(dx)/(dy/2);
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)]*ds*(dx)/(dy/2);
+        }
+        else if(BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)]*(dx);
+        }
+
+        // North
+
+        if(BC[BC_index - (nCols + 2)] == 0)
+        {
+            // north is not a boundary
+            dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - nCols]);
+            CoeffMatrix[i*5 + 4] = dn*(dx)/dy;
+            CoeffMatrix[i*5 + 0] -= dn*(dx)/dy;
+        }
+        else if(BC[BC_index - (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            dn = DC[i];
+            CoeffMatrix[i*5 + 0] -= dn*(dx)/(dy/2);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)]*dn*(dx)/(dy/2);
+        }
+        else if(BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)]*(dx);
+        }
+
+        // end
+    }
+
+    return 0;
+}
+
+
 int DiscSS3D_Simple(options*        opts,
                     meshInfo*       mesh,
                     int*            BC,
@@ -1197,7 +1396,6 @@ int DiscSS3D_Simple(options*        opts,
     double dw, de, ds, dn, df, db;
     for(long int i = 0; i < mesh->nElements; i++)
     {
-        // printf("i = %ld\n", i);
         // read the index into slice, row, and col
         slice   = i/(nRows*nCols);
         row     = (i - slice*nRows*nCols)/nCols;
@@ -1395,10 +1593,82 @@ int DiscSS3D_Simple(options*        opts,
     return 0;
 }
 
-int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, meshInfo *mesh)
+
+int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, meshInfo *mesh)
 {
 
     long int iterCount = 0;
+    double sigma = 0;
+    double pctChange = 1;
+    int i;
+    int iterToCheck = 100;
+    int offset[5];
+    // set array offsets
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+
+    double *Check = (double *)malloc(sizeof(double)*mesh->nElements);
+    memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
+
+    if(opts->verbose)
+    {
+        printf("Starting Main Loop\n");
+    }
+    
+
+    #pragma omp parallel private(i, sigma)
+
+    while(pctChange > opts->ConvergeCriteria && iterCount < opts->MAX_ITER)
+    {
+        #pragma omp parallel for
+        for(i = 0; i<mesh->nElements; i++)
+        {
+            sigma = 0;
+            for(int j = 1; j < 5; j++)
+            {
+                if(Coeff[i*5 + j] == 0) continue;
+                sigma += Coeff[i*5 + j] * Concentration[i + offset[j]];
+            }
+            Concentration[i] = 1.0/Coeff[i*5 + 0]*(RHS[i] - sigma);
+        }
+
+        iterCount++;
+        long int count = 0;
+        if(iterCount % iterToCheck == 0)
+        {
+            double sum = 0;
+            #pragma omp parallel for reduction(+:sum)
+            for(i = 0; i<mesh->nElements; i++)
+            {
+                if(Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - Check[i])/Concentration[i]);
+                    count++;
+                }
+            }
+            pctChange = sum/count;
+            memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
+        }
+    }
+
+    if(opts->verbose)
+    {
+        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+    }
+
+    free(Check);
+    return 0;
+}
+
+
+
+int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, meshInfo *mesh)
+{
+
+    int iterCount = 0;
     double sigma = 0;
     double pctChange = 1;
     int i;
@@ -1416,7 +1686,10 @@ int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
     double *Check = (double *)malloc(sizeof(double)*mesh->nElements);
     memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
 
-    printf("Starting Main Loop\n");
+    if(opts->verbose)
+    {
+        printf("Starting Main Loop\n");
+    }
 
     #pragma omp parallel private(i, sigma)
 
@@ -1428,31 +1701,38 @@ int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
             sigma = 0;
             for(int j = 1; j < 7; j++)
             {
-                if(Coeff[i*7 + j] == 0) continue;
-                sigma += Coeff[i*7 + j] * Concentration[i + offset[j]];
+                if(Coeff[i*7 + j] != 0){
+                    sigma += Coeff[i*7 + j] * Concentration[i + offset[j]];
+                }
             }
             Concentration[i] = 1.0/Coeff[i*7 + 0]*(RHS[i] - sigma);
         }
 
         iterCount++;
-        if(iterCount % iterToCheck == 0)
+        if((iterCount % iterToCheck) == 0)
         {
             double sum = 0;
+            long int count = 0;
             #pragma omp parallel for reduction(+:sum)
             for(i = 0; i<mesh->nElements; i++)
             {
-                if(Concentration[i] < 1e-5) continue;
-                sum += fabs((Concentration[i] - Check[i])/Concentration[i]);
+                if(Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - Check[i])/Concentration[i]);
+                    count++;
+                }
             }
-            pctChange = sum/mesh->nElements;
-            if (iterCount % 10000 == 0)
-            {
-                printf("Iter = %ld, Pct change = %1.3e\n", iterCount, pctChange);
-            }
-            
+            pctChange = sum/count;
             memcpy(Check, Concentration, sizeof(double)*mesh->nElements);
         }
+        
     }
+
+    if(opts->verbose)
+    {
+        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+    }
+    
 
     free(Check);
     return 0;
@@ -1484,6 +1764,11 @@ int SteadyStateSim2D(options* opts)
     // return an error if the image wasn't read properly
 
     if(readFlag == 1) return 1;
+
+    // set mesh parameters
+
+    mesh.dx = (double)1.0/mesh.numCellsX;
+    mesh.dy = (double)1.0/mesh.numCellsY;
 
     // Create arrays for BC's and DC's
 
@@ -1524,6 +1809,72 @@ int SteadyStateSim2D(options* opts)
     // If any phase is impermeable, need to find all non-participating media
 
     FloodFill2D_DeffSetup(&mesh, BC, DC);
+
+    // Allocate arrays for holding discretized equations
+
+    double* CoeffMatrix     = (double *)malloc(mesh.nElements * 5 * sizeof(double));
+    double* RHS             = (double *)malloc(mesh.nElements * sizeof(double));
+    double* Concentration   = (double *)malloc(mesh.nElements * sizeof(double));
+    
+    // initialize the memory
+
+    memset(CoeffMatrix  , 0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS          , 0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0, mesh.nElements * sizeof(double));
+
+    // Linear initialize concentration
+
+    for(int i = 0; i<mesh.nElements; i++)
+    {
+        int row = i/mesh.numCellsX;
+        int col = i - row*mesh.numCellsX;
+        Concentration[i] = ((double)col/mesh.numCellsX)*(opts->CRight - opts->CLeft) + opts->CLeft;
+        if(DC[i] == 0) Concentration[i] = 0;
+    }
+
+    // Discretize equations
+
+    DiscSS2D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
+
+    // Solve!
+
+    // will do a CPU solve first, depending how that goes we will implement the GPU solve later
+
+    omp_set_num_threads(opts->nThreads);
+
+    GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+
+    FILE* OUT;
+
+    OUT = fopen("ConDist2D.csv", "w");
+    fprintf(OUT,"x,y,C\n");
+    for(int i = 0; i<mesh.numCellsY; i++)
+    {
+        for(int j = 0; j<mesh.numCellsX; j++)
+        {
+            if(Concentration[i*mesh.numCellsX + j] != Concentration[i*mesh.numCellsX + j]) 
+            {
+                Concentration[i*mesh.numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j,i);
+            }
+            
+            fprintf(OUT,"%d,%d,%lf\n",j,i,Concentration[i*mesh.numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+
+    // Memory management
+
+    free(RHS);
+    free(CoeffMatrix);
+    free(Concentration);
+
+    free(BC);
+    free(BC_Value);
+    free(DC);
+
+    free(simObject);
 
     printf("Done?\n");
 
@@ -1631,7 +1982,7 @@ int SteadyStateSim3D(options* opts)
         int slice = i/(mesh.numCellsX*mesh.numCellsY);
         int row = (i - slice*mesh.numCellsX*mesh.numCellsY)/mesh.numCellsX;
         int col = (i - slice*mesh.numCellsX*mesh.numCellsY - row*mesh.numCellsX);
-        Concentration[i] = ((double)col/mesh.numCellsX)*opts->CRight;
+        Concentration[i] = ((double)col/mesh.numCellsX)*(opts->CRight - opts->CLeft) + opts->CLeft;
     }
     // Discretize
 
