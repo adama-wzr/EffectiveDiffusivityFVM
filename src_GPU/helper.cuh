@@ -66,6 +66,8 @@ typedef struct
     int nD;                     // number of dimensions
     int nThreads;               // number of threads
     char inputType;             // Input format for 3D simulations (0 default .csv, 1 is stack)
+    int useGPU;                 // Use GPU or not?
+    int nGPU;                   // number of GPUs
 } options;
 
 typedef struct
@@ -122,6 +124,9 @@ int printOptions(options* opts)
         printf("Running a bacth of size = %d\n", opts->NumImgBatch);
     } else
     {
+
+        // Options related to input type
+
         if(opts->inputType == 0)
         {
             printf("Input Method = csv\n");
@@ -158,7 +163,9 @@ int printOptions(options* opts)
                 printf("D_TH%d = %d\n", i+1, opts->DC_TH[i]);
             }
         }
+
         // check steady-state flag
+
         if(opts->SteadyStateFlag == 1)
         {
             printf("Steady-State Simulation Mode Selected\n");
@@ -171,6 +178,9 @@ int printOptions(options* opts)
                 Add here different time discretization requirements
             */
         }
+
+        // mesh amplificaiton
+
         printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
         printf("Mesh Refine Y = %d\n", opts->MeshIncreaseY);
         if (opts->nD == 3)
@@ -178,8 +188,12 @@ int printOptions(options* opts)
             printf("Mesh Refine Z = %d\n", opts->MeshIncreaseZ);
         }
 
+        // convergence
+
         printf("Max. Iterations: %ld\n", opts->MAX_ITER);
         printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
+
+        // options related to output printing
 
         if(opts->printCmap == 1)
         {
@@ -189,7 +203,18 @@ int printOptions(options* opts)
         {
             printf("Output File Name: %s\n", opts->outputFilename);
         }
-        printf("Number of Threads = %d\n", opts->nThreads);
+        
+        // Options related to multi-threading/GPU
+        
+        if(opts->useGPU == 1)
+        {
+            printf("Using %d GPU's\n", opts->nGPU);
+        }
+        else
+        {
+            printf("Number of Threads = %d\n", opts->nThreads);
+        }
+        
     }
 
     printf("--------------------------------------\n\n");
@@ -241,6 +266,9 @@ void readInputGeneral(char* FileName, options* opts){
     opts->inputType = 0;
 
     opts->nThreads = 1;
+
+    opts->useGPU = 0;
+    opts->nGPU = 1;
 
     /*
     --------------------------------------------------------------------------------
@@ -366,6 +394,14 @@ void readInputGeneral(char* FileName, options* opts){
         else if(strcmp(tempC,"nThreads:") == 0)
         {
             opts->nThreads = (int)tempD;
+        }
+        else if(strcmp(tempC,"useGPU:") == 0)
+        {
+            opts->useGPU = (int)tempD;
+        }
+        else if(strcmp(tempC, "nGPU:") == 0)
+        {
+            opts->nGPU = (int)tempD;
         }
 
         // Update the number of expected diffusion coefficients and thresholding for image
