@@ -17,7 +17,7 @@ printCMap: 1
 CMapName: testCMap.csv
 SS: 1
 Convergence: 1e-5
-MaxIter: 1e5
+MaxIter: 1e6
 CL: 0
 CR: 1
 InputName: Schwarz163.csv

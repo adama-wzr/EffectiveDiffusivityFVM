@@ -2,7 +2,27 @@
 
 License information:
 
-Upcoming.
+MIT License
+
+Copyright (c) 2025 Andre Adam
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 
 Code contributors:
@@ -10,13 +30,9 @@ Code contributors:
 Andre Adam. 
 
 Last Update: 
-01/16/2025
+01/24/2025
 
 */
-
-
-
-
 
 #ifndef _HELPER
 #define _HELPER
@@ -38,6 +54,20 @@ Last Update:
 #include "cuda_runtime.h"
 #include "cuda.h"
 #include <omp.h>
+
+// CUDA CHECK ERROR
+
+#define CHECK_CUDA(func)                                                       \
+{                                                                              \
+    cudaError_t status = (func);                                               \
+    if (status != cudaSuccess) {                                               \
+        printf("CUDA API failed at line %d with error: %s (%d)\n",             \
+               __LINE__, cudaGetErrorString(status), status);                  \
+        return EXIT_FAILURE;                                                   \
+    }                                                                          \
+}
+
+// Data structure definitions
 
 typedef struct
 {
@@ -98,6 +128,54 @@ typedef struct
 typedef std::tuple<int, int, int> coord;
 
 typedef std::pair<int,int> coordPair;
+
+/*
+
+    GPU Kernels
+
+*/
+
+// 3D GPU SOR
+
+__global__ void updateX_SOR(double*     A,
+                            double*     x,
+                            double*     b,
+                            double*     xNew,
+                            long int    nElements,
+                            int         nCols,
+                            int         nRows)
+{
+	unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	double w = 2.0/3.0;
+
+	if (myIdx < nElements){
+		double sigma = 0;
+		for(int j = 1; j<7; j++){
+			if(A[myIdx*7 + j] != 0){
+				if(j == 1){
+					sigma += A[myIdx*7 + j]*x[myIdx - 1];
+				} else if(j == 2){
+					sigma += A[myIdx*7 + j]*x[myIdx + 1];
+				} else if(j == 3){
+					sigma += A[myIdx*7 + j]*x[myIdx + nCols];
+				} else if(j == 4){
+					sigma += A[myIdx*7 + j]*x[myIdx - nCols];
+				} else if(j == 5){
+					sigma += A[myIdx*7 + j]*x[myIdx + nCols*nRows];
+				} else if(j == 6){
+					sigma += A[myIdx*7 + j]*x[myIdx - nCols*nRows];
+				}
+			}
+		}
+		xNew[myIdx] = (1.0-w)*x[myIdx] +  w/A[myIdx*7 + 0] * (b[myIdx] - sigma);
+	}
+}
+
+/*
+
+    Functions handling user input:
+
+*/
 
 
 int printOptions(options* opts)
@@ -208,7 +286,7 @@ int printOptions(options* opts)
         
         if(opts->useGPU == 1)
         {
-            printf("Using %d GPU's\n", opts->nGPU);
+            printf("Using %d GPU(s)\n", opts->nGPU);
         }
         else
         {
@@ -562,6 +640,11 @@ int readImg2D(options* opts, meshInfo* mesh, char*& simObject)
     return 0;
 }
 
+/*
+
+    Auxiliary Functions:
+
+*/
 
 double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
 {
@@ -581,6 +664,13 @@ double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
     double H = (w1 + w2)/(w1/x1 + w2/x2);
     return H;
 }
+
+/*
+
+    Setting DC's and BC's:
+
+*/
+
 
 int SetDC2D(options* opts, meshInfo* mesh, double* DC, char* simObject)
 {
@@ -1192,8 +1282,15 @@ int FloodFill3D_DeffSetup(meshInfo* mesh, int* BC, double* DC)
     free(Domain);
 
     return 0;
-
 }
+
+
+/*
+
+    Discretizations:
+
+*/
+
 
 int DiscSS2D_Simple(options*        opts,
                     meshInfo*       mesh,
@@ -1630,6 +1727,205 @@ int DiscSS3D_Simple(options*        opts,
 }
 
 
+/*
+
+    GPU Space Management:
+
+*/
+
+int initGPU_3DSOR(double**      d_Coeff,
+                double**        d_RHS,
+                double**        d_Conc,
+                double**        d_ConcTemp, 
+                meshInfo*       mesh)
+{
+    /*
+        Function initGPU_3DSOR:
+        Inputs:
+            - double pointer to d_Coeff, storing coeff matrix in GPU
+            - double pointer to d_RHS, storing RHS vector in GPU
+            - double pointer to d_Conc, the concentration array in GPU memory
+            - double pointer to d_ConcTemp, where the concentration array will 
+                be modified in GPU memory
+            - pointer to meshInfo, holding general information about the mesh.
+        Outputs:
+            - None.
+        
+        The function will allocate the sufficient space for the arrays needed for
+        the Standard Over-Relaxed Jacobi Method. It also initializes the arrays.
+        Error calls are returned if it fails.
+    */
+
+    // Set device
+
+    CHECK_CUDA( cudaSetDevice(0));
+
+    // Allocate space
+
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_Coeff),     mesh->nElements * sizeof(double) * 7));
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_RHS),       mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_Conc),      mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_ConcTemp),  mesh->nElements * sizeof(double)) );
+
+    // Set buffers
+
+    CHECK_CUDA( cudaMemset((*d_Coeff),      0 , mesh->nElements * sizeof(double) * 7) );
+    CHECK_CUDA( cudaMemset((*d_RHS),        0 , mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMemset((*d_Conc),       0 , mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMemset((*d_ConcTemp),   0 , mesh->nElements * sizeof(double)) );
+
+    return 0;
+}
+
+
+int unInitGPU_3DSOR(double**        d_Coeff,
+                double**            d_RHS,
+                double**            d_Conc,
+                double**            d_ConcTemp)
+{
+    /*
+        Function unInitGPU_3DSOR:
+        Inputs:
+            - double pointer to d_Coeff, storing coeff matrix in GPU
+            - double pointer to d_RHS, storing RHS vector in GPU
+            - double pointer to d_Conc, the concentration array in GPU memory
+            - double pointer to d_ConcTemp, where the concentration array will 
+                be modified in GPU memory
+        Outputs:
+            - None.
+        
+        The function will free space in device memory.
+    */
+
+    CHECK_CUDA( cudaFree((*d_Coeff)));
+    CHECK_CUDA( cudaFree((*d_RHS)));
+    CHECK_CUDA( cudaFree((*d_Conc)));
+    CHECK_CUDA( cudaFree((*d_ConcTemp)));
+    
+    return 0;
+}
+
+/*
+
+    Solvers:
+
+*/
+
+int JI3D_SOR(double     *Coeff,
+            double      *RHS,
+            double      *Concentration,
+            double      *d_Coeff,
+            double      *d_RHS,
+            double      *d_Conc,
+            double      *d_ConcTemp,
+            options     *opts,
+            meshInfo    *mesh)
+{
+    /*
+        Function JI3D_SOR:
+        Inputs:
+            - pointer to coefficient matrix array
+            - pointer to RHS matrix array
+            - pointer to Concentration distribution array
+            - pointer to device coefficient matrix
+            - pointer to device right-hand side array
+            - pointer to device concentration array
+            - pointer to device temporary concentration array storage
+            - pointer to options struct
+            - pointer to mesh struct
+        Outputs:
+            - None
+
+        This function will manage the host-device interactions for the Jacobi Iteration method
+        in 3D, with a standard over-relaxation applied. The function will manage data transfers,
+        convergence criteria, and kernel coordination.
+    */
+
+    long int iterCount = 0;
+    int threads_per_block = 128;
+    int numBlocks = mesh->nElements / threads_per_block + 1;
+    
+    double pctChange = 1;
+    int iterToCheck = 1000;
+
+    // copy arrays into GPU
+
+    CHECK_CUDA( cudaMemcpy( d_Conc      , Concentration, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+
+    CHECK_CUDA( cudaMemcpy( d_ConcTemp  , Concentration, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+
+    CHECK_CUDA( cudaMemcpy( d_RHS       , RHS, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+    
+    CHECK_CUDA( cudaMemcpy( d_Coeff     , Coeff, 
+                sizeof(double) * mesh->nElements * 7, cudaMemcpyHostToDevice) );
+    
+    // Create Array to store temp Conc
+
+    double* TempConc = (double *)malloc(sizeof(double) * mesh->nElements);
+
+    memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+
+    // start the main loop
+
+    while(iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
+    {
+        // call kernel
+
+        updateX_SOR<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+                                        mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        // check convergence
+
+        if(iterCount % iterToCheck == 0 && iterCount != 0)
+        {
+            // copy array from device to host
+            CHECK_CUDA( cudaMemcpy(Concentration, d_Conc,sizeof(double)*mesh->nElements, cudaMemcpyDeviceToHost) );
+            
+            // compare
+            double sum = 0;
+            long int count = 0;
+
+            for(int i = 0;  i < mesh->nElements; i++)
+            {
+                if(Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - TempConc[i])/Concentration[i]);
+                    count++;
+                }
+            }
+            // calculate the change
+            pctChange = sum/count;
+            // copy memory to temp conc
+            memcpy(TempConc, Concentration, sizeof(double)*mesh->nElements);
+            // printf("Total iter = %d, pct change = %lf, count = %ld\n", iterCount, pctChange, count);
+        }
+        
+        // update d_Conc = d_ConcTemp
+
+        CHECK_CUDA( cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double)*mesh->nElements, cudaMemcpyDeviceToDevice) );
+        
+        // increment
+        iterCount++;
+    }
+
+    // copy the solution
+
+    CHECK_CUDA( cudaMemcpy(Concentration, d_ConcTemp, 
+                    sizeof(double)*mesh->nElements, cudaMemcpyDeviceToHost) );
+
+    // print success
+
+    if(opts->verbose)
+    {
+        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+    }
+
+    return 0;
+}
+
+
 int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, meshInfo *mesh)
 {
 
@@ -1773,6 +2069,14 @@ int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
     free(Check);
     return 0;
 }
+
+
+/*
+
+    Main simulation-modes control:
+
+*/
+
 
 int SteadyStateSim2D(options* opts)
 {
@@ -2018,7 +2322,10 @@ int SteadyStateSim3D(options* opts)
         int slice = i/(mesh.numCellsX*mesh.numCellsY);
         int row = (i - slice*mesh.numCellsX*mesh.numCellsY)/mesh.numCellsX;
         int col = (i - slice*mesh.numCellsX*mesh.numCellsY - row*mesh.numCellsX);
-        Concentration[i] = ((double)col/mesh.numCellsX)*(opts->CRight - opts->CLeft) + opts->CLeft;
+        if(DC[i] != 0)
+        {
+            Concentration[i] = ((double)col/mesh.numCellsX)*(opts->CRight - opts->CLeft) + opts->CLeft;
+        }
     }
     // Discretize
 
@@ -2026,15 +2333,56 @@ int SteadyStateSim3D(options* opts)
 
     // Solve!
 
-    // will do a CPU solve first, depending how that goes we will implement the GPU solve later
+    if(opts->useGPU == 0)
+    {
+        // CPU Solve
 
-    omp_set_num_threads(opts->nThreads);
+        omp_set_num_threads(opts->nThreads);
 
-    GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+        GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+    }else
+    {
+        // Now we confirm that there is a match in GPUs available and user expectations
+        
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+        
+        if(nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }else if(nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+        
+        // Declare needed arrays
+
+        double *d_Coeff     = NULL;
+        double *d_RHS       = NULL;
+        double *d_Conc      = NULL;
+        double *d_ConcTemp  = NULL;
+
+        // Initialize the GPU arrays
+
+        initGPU_3DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+
+        // Solve
+
+        JI3D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+        
+        // Free GPU memory
+
+        unInitGPU_3DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }
+    
 
     FILE* OUT;
 
-    OUT = fopen("ConDist.csv", "w");
+    OUT = fopen("ConDist3D.csv", "w");
     fprintf(OUT,"x,y,z,c\n");
     for(int i = 0; i<mesh.numCellsY; i++)
     {

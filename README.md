@@ -41,6 +41,14 @@ nvcc -std=c++17 -Xcompiler -openmp main.cu
 ```
 This is mainly an issue on Windows. Any version that is C++17 or more recent should work.
 
+Sometimes, the code may fail to launch the kernel for the GPU. There are multiple reasons why that might be the case. If the drivers are up-to-date and the kernel are still not launching, specifying the architecture of the GPU will generally solve the problem:
+
+```bash
+nvcc -std=c++17 -Xcompiler -openmp -arch=sm_XX main.cu
+```
+
+where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`).
+
 ## Required Files
 
 All these files have to be in the same folder (or in the path for compilation/run).
