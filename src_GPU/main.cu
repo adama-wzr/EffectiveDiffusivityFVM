@@ -16,7 +16,10 @@ int main(int argc, char **argv)
 
     // Do some checks to make sure the input was ok
 
-    
+    if(opts.tauSim == 1)
+    {
+        if(opts.verbose) printOptions(&opts);
+    }
 
     if(opts.verbose) printOptions(&opts);
 
