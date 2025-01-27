@@ -71,55 +71,55 @@ Last Update:
 
 typedef struct
 {
-	double *DC;                 // array with diffusion coefficients
-    unsigned char *DC_TH;       // Upper limit threshold for phase differentiation when reading jpg's
-    int numDC;                  // number of diffusion coefficients
-	int MeshIncreaseX;		    // Mesh refinement in x-direction
-	int MeshIncreaseY;		    // Mesh refinement in y-direction
-    int MeshIncreaseZ;          // Mesh refinement in the z-direction
-	double CLeft;			    // Concentration of trace species in left boundary
-	double CRight;			    // Concentration of trace species in right boundary
-	long int MAX_ITER;		    // Max iterations
-	double ConvergeCriteria;    // Convergence Criteria
-	char *inputFilename;	    // Input filename
-    int printOut;               // Flag to print output or not
-	char *outputFilename;	    // Output filename
-	int printCmap;			    // print concentration map (true/false) flag
-	char *CMapName;			    // Concentration map name
-	int verbose;			    // verbose flag
-	int BatchFlag;			    // Batch flag
-	int NumImgBatch;		    // Number of images in the batch
-    char SteadyStateFlag;       // steady state simulation or time dependent ?
-    int height;                 // height in number of pixels
-    int width;                  // width in number of pixels
-    int depth;                  // depth in number of pixels
-    int nD;                     // number of dimensions
-    int nThreads;               // number of threads
-    char inputType;             // Input format for 3D simulations (0 default .csv, 1 is stack)
-    int useGPU;                 // Use GPU or not?
-    int nGPU;                   // number of GPUs
+    double *DC;              // array with diffusion coefficients
+    unsigned char *DC_TH;    // Upper limit threshold for phase differentiation when reading jpg's
+    int numDC;               // number of diffusion coefficients
+    int MeshIncreaseX;       // Mesh refinement in x-direction
+    int MeshIncreaseY;       // Mesh refinement in y-direction
+    int MeshIncreaseZ;       // Mesh refinement in the z-direction
+    double CLeft;            // Concentration of trace species in left boundary
+    double CRight;           // Concentration of trace species in right boundary
+    long int MAX_ITER;       // Max iterations
+    double ConvergeCriteria; // Convergence Criteria
+    char *inputFilename;     // Input filename
+    int printOut;            // Flag to print output or not
+    char *outputFilename;    // Output filename
+    int printCmap;           // print concentration map (true/false) flag
+    char *CMapName;          // Concentration map name
+    int verbose;             // verbose flag
+    int BatchFlag;           // Batch flag
+    int NumImgBatch;         // Number of images in the batch
+    char SteadyStateFlag;    // steady state simulation or time dependent ?
+    int height;              // height in number of pixels
+    int width;               // width in number of pixels
+    int depth;               // depth in number of pixels
+    int nD;                  // number of dimensions
+    int nThreads;            // number of threads
+    char inputType;          // Input format for 3D simulations (0 default .csv, 1 is stack)
+    int useGPU;              // Use GPU or not?
+    int nGPU;                // number of GPUs
 } options;
 
 typedef struct
 {
-	int Width;
-	int Height;
+    int Width;
+    int Height;
     int Depth;
-	double time;
-	unsigned char *target_data;
-	double deff;
-	bool PathFlag;
-	double conv;
+    double time;
+    unsigned char *target_data;
+    double deff;
+    bool PathFlag;
+    double conv;
 } simulationInfo;
 
 typedef struct
 {
-	int numCellsX;
-	int numCellsY;
+    int numCellsX;
+    int numCellsY;
     int numCellsZ;
-	long int nElements;
-	double dx;
-	double dy;
+    long int nElements;
+    double dx;
+    double dy;
     double dz;
 } meshInfo;
 
@@ -127,7 +127,7 @@ typedef struct
 
 typedef std::tuple<int, int, int> coord;
 
-typedef std::pair<int,int> coordPair;
+typedef std::pair<int, int> coordPair;
 
 /*
 
@@ -137,38 +137,96 @@ typedef std::pair<int,int> coordPair;
 
 // 3D GPU SOR
 
-__global__ void updateX_SOR(double*     A,
-                            double*     x,
-                            double*     b,
-                            double*     xNew,
-                            long int    nElements,
-                            int         nCols,
-                            int         nRows)
+__global__ void JI_SOR3D_kernel(
+    double *A,
+    double *x,
+    double *b,
+    double *xNew,
+    long int nElements,
+    int nCols,
+    int nRows)
 {
-	unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
-	double w = 2.0/3.0;
+    unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    double w = 2.0 / 3.0;
 
-	if (myIdx < nElements){
-		double sigma = 0;
-		for(int j = 1; j<7; j++){
-			if(A[myIdx*7 + j] != 0){
-				if(j == 1){
-					sigma += A[myIdx*7 + j]*x[myIdx - 1];
-				} else if(j == 2){
-					sigma += A[myIdx*7 + j]*x[myIdx + 1];
-				} else if(j == 3){
-					sigma += A[myIdx*7 + j]*x[myIdx + nCols];
-				} else if(j == 4){
-					sigma += A[myIdx*7 + j]*x[myIdx - nCols];
-				} else if(j == 5){
-					sigma += A[myIdx*7 + j]*x[myIdx + nCols*nRows];
-				} else if(j == 6){
-					sigma += A[myIdx*7 + j]*x[myIdx - nCols*nRows];
-				}
-			}
-		}
-		xNew[myIdx] = (1.0-w)*x[myIdx] +  w/A[myIdx*7 + 0] * (b[myIdx] - sigma);
-	}
+    if (myIdx < nElements)
+    {
+        double sigma = 0;
+        for (int j = 1; j < 7; j++)
+        {
+            if (A[myIdx * 7 + j] != 0)
+            {
+                if (j == 1)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx - 1];
+                }
+                else if (j == 2)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx + 1];
+                }
+                else if (j == 3)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx + nCols];
+                }
+                else if (j == 4)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx - nCols];
+                }
+                else if (j == 5)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx + nCols * nRows];
+                }
+                else if (j == 6)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx - nCols * nRows];
+                }
+            }
+        }
+        xNew[myIdx] = (1.0 - w) * x[myIdx] + w / A[myIdx * 7 + 0] * (b[myIdx] - sigma);
+    }
+}
+
+// 2D GPU Jacobi-SOR
+
+__global__ void JI_SOR2D_kernel(
+    double *A,
+    double *x,
+    double *b,
+    double *xNew,
+    long int nElements,
+    int nCols,
+    int nRows)
+{
+    unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    double w = 2.0 / 3.0;
+
+    if (myIdx < nElements)
+    {
+        double sigma = 0;
+        for (int j = 1; j < 5; j++)
+        {
+            if (A[myIdx * 5 + j] != 0)
+            {
+                if (j == 1)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx - 1];
+                }
+                else if (j == 2)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx + 1];
+                }
+                else if (j == 3)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx + nCols];
+                }
+                else if (j == 4)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx - nCols];
+                }
+            }
+        }
+        xNew[myIdx] = (1.0 - w) * x[myIdx] + w / A[myIdx * 5 + 0] * (b[myIdx] - sigma);
+    }
 }
 
 /*
@@ -1733,6 +1791,51 @@ int DiscSS3D_Simple(options*        opts,
 
 */
 
+int initGPU_2DSOR(double**      d_Coeff,
+                double**        d_RHS,
+                double**        d_Conc,
+                double**        d_ConcTemp, 
+                meshInfo*       mesh)
+{
+    /*
+        Function initGPU_2DSOR:
+        Inputs:
+            - double pointer to d_Coeff, storing coeff matrix in GPU
+            - double pointer to d_RHS, storing RHS vector in GPU
+            - double pointer to d_Conc, the concentration array in GPU memory
+            - double pointer to d_ConcTemp, where the concentration array will 
+                be modified in GPU memory
+            - pointer to meshInfo, holding general information about the mesh.
+        Outputs:
+            - None.
+        
+        The function will allocate the sufficient space for the arrays needed for
+        the Standard Over-Relaxed Jacobi Method. It also initializes the arrays.
+        Error calls are returned if it fails.
+    */
+
+    // Set device
+
+    CHECK_CUDA( cudaSetDevice(0));
+
+    // Allocate space
+
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_Coeff),     mesh->nElements * sizeof(double) * 5));
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_RHS),       mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_Conc),      mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMalloc( (void**)&(*d_ConcTemp),  mesh->nElements * sizeof(double)) );
+
+    // Set buffers
+
+    CHECK_CUDA( cudaMemset((*d_Coeff),      0 , mesh->nElements * sizeof(double) * 5) );
+    CHECK_CUDA( cudaMemset((*d_RHS),        0 , mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMemset((*d_Conc),       0 , mesh->nElements * sizeof(double)) );
+    CHECK_CUDA( cudaMemset((*d_ConcTemp),   0 , mesh->nElements * sizeof(double)) );
+
+    return 0;
+}
+
+
 int initGPU_3DSOR(double**      d_Coeff,
                 double**        d_RHS,
                 double**        d_Conc,
@@ -1778,13 +1881,13 @@ int initGPU_3DSOR(double**      d_Coeff,
 }
 
 
-int unInitGPU_3DSOR(double**        d_Coeff,
+int unInitGPU_SOR(double**        d_Coeff,
                 double**            d_RHS,
                 double**            d_Conc,
                 double**            d_ConcTemp)
 {
     /*
-        Function unInitGPU_3DSOR:
+        Function unInitGPU_SOR:
         Inputs:
             - double pointer to d_Coeff, storing coeff matrix in GPU
             - double pointer to d_RHS, storing RHS vector in GPU
@@ -1810,6 +1913,120 @@ int unInitGPU_3DSOR(double**        d_Coeff,
     Solvers:
 
 */
+
+int JI2D_SOR(double     *Coeff,
+            double      *RHS,
+            double      *Concentration,
+            double      *d_Coeff,
+            double      *d_RHS,
+            double      *d_Conc,
+            double      *d_ConcTemp,
+            options     *opts,
+            meshInfo    *mesh)
+{
+    /*
+        Function JI2D_SOR:
+        Inputs:
+            - pointer to coefficient matrix array
+            - pointer to RHS matrix array
+            - pointer to Concentration distribution array
+            - pointer to device coefficient matrix
+            - pointer to device right-hand side array
+            - pointer to device concentration array
+            - pointer to device temporary concentration array storage
+            - pointer to options struct
+            - pointer to mesh struct
+        Outputs:
+            - None
+
+        This function will manage the host-device interactions for the Jacobi Iteration method
+        in 2D, with a standard over-relaxation applied. The function will manage data transfers,
+        convergence criteria, and kernel coordination.
+    */
+
+    long int iterCount = 0;
+    int threads_per_block = 128;
+    int numBlocks = mesh->nElements / threads_per_block + 1;
+    
+    double pctChange = 1;
+    int iterToCheck = 1000;
+
+    // copy arrays into GPU
+
+    CHECK_CUDA( cudaMemcpy( d_Conc      , Concentration, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+
+    CHECK_CUDA( cudaMemcpy( d_ConcTemp  , Concentration, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+
+    CHECK_CUDA( cudaMemcpy( d_RHS       , RHS, 
+                sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice) );
+    
+    CHECK_CUDA( cudaMemcpy( d_Coeff     , Coeff, 
+                sizeof(double) * mesh->nElements * 5, cudaMemcpyHostToDevice) );
+    
+    // Create Array to store temp Conc
+
+    double* TempConc = (double *)malloc(sizeof(double) * mesh->nElements);
+
+    memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+
+    // start the main loop
+
+    while(iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
+    {
+        // call kernel
+
+        JI_SOR2D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+                                        mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        // check convergence
+
+        if(iterCount % iterToCheck == 0 && iterCount != 0)
+        {
+            // copy array from device to host
+            CHECK_CUDA( cudaMemcpy(Concentration, d_Conc,sizeof(double)*mesh->nElements, cudaMemcpyDeviceToHost) );
+            
+            // compare
+            double sum = 0;
+            long int count = 0;
+
+            for(int i = 0;  i < mesh->nElements; i++)
+            {
+                if(Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - TempConc[i])/Concentration[i]);
+                    count++;
+                }
+            }
+            // calculate the change
+            pctChange = sum/count;
+            // copy memory to temp conc
+            memcpy(TempConc, Concentration, sizeof(double)*mesh->nElements);
+        }
+        
+        // update d_Conc = d_ConcTemp
+
+        CHECK_CUDA( cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double)*mesh->nElements, cudaMemcpyDeviceToDevice) );
+        
+        // increment
+        iterCount++;
+    }
+
+    // copy the solution
+
+    CHECK_CUDA( cudaMemcpy(Concentration, d_ConcTemp, 
+                    sizeof(double)*mesh->nElements, cudaMemcpyDeviceToHost) );
+
+    // print success
+
+    if(opts->verbose)
+    {
+        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+    }
+
+    return 0;
+}
+
 
 int JI3D_SOR(double     *Coeff,
             double      *RHS,
@@ -1874,7 +2091,7 @@ int JI3D_SOR(double     *Coeff,
     {
         // call kernel
 
-        updateX_SOR<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+        JI_SOR3D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
                                         mesh->nElements, mesh->numCellsX, mesh->numCellsY);
         // check convergence
 
@@ -1899,7 +2116,6 @@ int JI3D_SOR(double     *Coeff,
             pctChange = sum/count;
             // copy memory to temp conc
             memcpy(TempConc, Concentration, sizeof(double)*mesh->nElements);
-            // printf("Total iter = %d, pct change = %lf, count = %ld\n", iterCount, pctChange, count);
         }
         
         // update d_Conc = d_ConcTemp
@@ -2176,13 +2392,49 @@ int SteadyStateSim2D(options* opts)
 
     DiscSS2D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
 
-    // Solve!
+    if(opts->useGPU == 0)
+    {
+        omp_set_num_threads(opts->nThreads);
 
-    // will do a CPU solve first, depending how that goes we will implement the GPU solve later
+        GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+    } else
+    {
+        // Now we confirm that there is a match in GPUs available and user expectations
+        
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+        
+        if(nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }else if(nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+        
+        // Declare needed arrays
 
-    omp_set_num_threads(opts->nThreads);
+        double *d_Coeff     = NULL;
+        double *d_RHS       = NULL;
+        double *d_Conc      = NULL;
+        double *d_ConcTemp  = NULL;
 
-    GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+        // Initialize the GPU arrays
+
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+
+        // // Solve
+
+        JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+        
+        // // Free GPU memory
+
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }  
 
     FILE* OUT;
 
@@ -2376,7 +2628,7 @@ int SteadyStateSim3D(options* opts)
         
         // Free GPU memory
 
-        unInitGPU_3DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
     
 
