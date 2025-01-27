@@ -422,6 +422,44 @@ int printOpts_Tau(options *opts)
         printf("UB = %d, LB = %d\n", opts->POI_B[1], opts->POI_B[0]);
     }
 
+    // mesh amplificaiton
+
+    printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
+    printf("Mesh Refine Y = %d\n", opts->MeshIncreaseY);
+    if (opts->nD == 3)
+    {
+        printf("Mesh Refine Z = %d\n", opts->MeshIncreaseZ);
+    }
+
+    // convergence
+
+    printf("Max. Iterations: %ld\n", opts->MAX_ITER);
+    printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
+
+    // options related to output printing
+
+    if (opts->printCmap == 1)
+    {
+        printf("CMAP Name: %s\n", opts->CMapName);
+    }
+    if (opts->printOut == 1)
+    {
+        printf("Output File Name: %s\n", opts->outputFilename);
+    }
+
+    // Options related to multi-threading/GPU
+
+    if (opts->useGPU == 1)
+    {
+        printf("Using %d GPU(s)\n", opts->nGPU);
+    }
+    else
+    {
+        printf("Number of Threads = %d\n", opts->nThreads);
+    }
+
+    printf("--------------------------------------\n\n");
+
     return 0;
 }
 
@@ -709,6 +747,92 @@ int readCSV3D(options *opts, char *simObject)
     return 0;
 }
 
+int readImgTau2D(options *opts, meshInfo *mesh, tauInfo *tInfo, char *&simObject)
+{
+    /*
+        Function readImg2D:
+        Inputs:
+            - Pointer to options struct.
+            - Pointer to mesh struct.
+            - Pointer to tauInfo struct.
+            - Pointer to simObject array, where image will be stored temporarily.
+        Outputs:
+            - None
+
+        Function will read the target grayscale image for 2D simulation.
+
+        NOTE: Notation char*& is only valid in C++, not in C.
+    */
+    // read image and store data
+
+    int nChannels;
+    unsigned char *target_data = stbi_load(opts->inputFilename, &opts->width,
+                                           &opts->height, &nChannels, 1);
+
+    // Terminate if n channel != 1
+
+    if (nChannels != 1)
+    {
+        printf("Number of Channels of input image != 1\n");
+        printf("Exiting with error\n");
+        return 1;
+    }
+
+    // store image size information
+
+    mesh->numCellsX = opts->width * opts->MeshIncreaseX;
+    mesh->numCellsY = opts->height * opts->MeshIncreaseY;
+    mesh->numCellsZ = 1;
+    mesh->nElements = mesh->numCellsX * mesh->numCellsY;
+
+    // store information that will be printed
+
+    tInfo->numCellsX = mesh->numCellsX;
+    tInfo->numCellsY = mesh->numCellsY;
+    tInfo->numCellsZ = mesh->numCellsZ;
+    tInfo->nElements = mesh->nElements;
+
+    tInfo->MeshAmpX = opts->MeshIncreaseX;
+    tInfo->MeshAmpY = opts->MeshIncreaseY;
+    tInfo->MeshAmpZ = opts->MeshIncreaseZ;
+
+    // dynamically allocate the simObject array given the data
+
+    simObject = (char *)malloc(sizeof(char) * mesh->nElements);
+
+    // apply the simple thresholding for POI
+
+    long int count = 0;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        for (int col = 0; col < mesh->numCellsX; col++)
+        {
+            // Account for mesh amplification
+            int targetRow = row / opts->MeshIncreaseY;
+            int targetCol = col / opts->MeshIncreaseX;
+            int targetIdx = targetRow * opts->width + targetCol;
+
+            // thresholding
+
+            if (target_data[targetIdx] >= opts->POI_B[0] && target_data[targetIdx] <= opts->POI_B[1])
+            {
+                simObject[row * mesh->numCellsX + col] = 0; // participating media
+                count++;
+            } else
+            {
+                simObject[row * mesh->numCellsX + col] = 1; // other non-participating media
+            }
+        }
+    }
+
+    // Update volume fraction
+    
+    tInfo->VF = (float)count/mesh->nElements;
+
+    return 0;
+}
+
 int readImg2D(options *opts, meshInfo *mesh, char *&simObject)
 {
     /*
@@ -810,6 +934,32 @@ double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
     Setting DC's and BC's:
 
 */
+
+int SetDC2D_Tau(options *opts, meshInfo *mesh, double *DC, char *simObject)
+{
+    /*
+        Function SetDC2D_Tau:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to DC, an array where the diffusion coefficients will be stored
+            - pointer to simObject, where structure and phase information was originally stored.
+        Outputs:
+            - None.
+        The function will set the diffusion coefficient on DC, according to the
+        phases given by the simObject array and user options.
+    */
+
+    for (int i = 0; i < mesh->numCellsY; i++)
+    {
+        for (int j = 0; j < mesh->numCellsX; j++)
+        {
+            if(simObject[i * mesh->numCellsX + j] == 0) DC[i * mesh->numCellsX + j] = 1;
+        }
+    }
+    return 0;
+}
+
 
 int SetDC2D(options *opts, meshInfo *mesh, double *DC, char *simObject)
 {
@@ -1025,6 +1175,166 @@ int SetBC_DeffSetup3D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
 
     return 0;
 }
+
+int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
+{
+    /*
+        FloodFill2D_Tort function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to simObject array
+            - pointer to tauInfo
+        Outputs:
+            - None
+
+        he function will identify all participating media and all
+        pore spaces that are non-participating.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(simObject[i] == 0) Domain[i] = -1;   // permeable media
+        else Domain[i] = 1;                     // impermeable
+    }
+
+    // Find pereable boundaries, add to list
+
+    std::set<coordPair> cList;
+
+    int left = 0;
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        // set right
+        if (Domain[row * mesh->numCellsX + left] == -1)
+        {
+            Domain[row * mesh->numCellsX + left] = 0;
+            cList.insert(std::pair(left, row));
+        }
+        // set right
+        if (Domain[row * mesh->numCellsX + right] == -1)
+        {
+            Domain[row * mesh->numCellsX + right] = 0;
+            cList.insert(std::pair(right, row));
+        }
+    }
+
+    // Search full domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // read coordinates
+
+        int col = pop.first;
+        int row = pop.second;
+
+        /*
+            We need to check North, South, East, and West for more fluid:
+
+            North = col + 0, row - 1
+            South = col + 0, row + 1
+            East  = col + 1, row + 0
+            West  = col - 1, row + 0
+
+            Note that diagonals are not considered a connection.
+            This code assumes no periodic boundary conditions (currently).
+        */
+        int tempRow, tempCol;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+
+        if (row > 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // South
+
+        tempCol = col;
+
+        if (row < mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+
+        if (col > 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // East
+
+        tempRow = row;
+
+        if (col < mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // end while
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    long int count = 0;
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if( Domain[i] == -1) simObject[i] = 1;
+        else if (Domain[i] == 0) count++;
+    }
+
+    tInfo->eVF = (float)count/mesh->nElements;
+
+    // Memory management
+
+    free(Domain);
+
+    return 0;
+}
+
 
 int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
@@ -1416,6 +1726,157 @@ int FloodFill3D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
     Discretizations:
 
 */
+
+int Disc2D_Tau(options *opts,
+               meshInfo *mesh,
+               char *simObject,
+               double *DC,
+               double *CoeffMatrix,
+               double *RHS)
+{
+    /*
+        Function Disc2D_Tau:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to char array simObject, which determines the POI
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization for a simulation of tortuosity. It will populate the
+        Coefficient Matrix array and the RHS array (where BC's are held).
+    */
+     // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy;
+    dx = mesh->dx;
+    dy = mesh->dy;
+
+    int row, col;
+    double dw, de, ds, dn;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i * 5 + k] = 0;
+        }
+
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+
+        if (simObject[i] != 0)
+        {
+            // 1 * phi = 0;
+            CoeffMatrix[i * 5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Participating fluid
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // West
+
+        if(col == 0)
+        {
+            // Left boundary
+            dw = DC[i];
+            RHS[i] -= opts->CLeft * dw * dy/(dx/2);
+            CoeffMatrix[i * 5 + 0] -= dw * dy /(dx/2);
+        } else if(simObject[i - 1] == 0)
+        {
+            // West is participating media
+            dw = DC[i];
+            CoeffMatrix[i * 5 + 1] = dw * dy/dx;
+            CoeffMatrix[i * 5 + 0]-= dw * dy/dx;
+        }
+
+        // East
+
+        if(col == mesh->numCellsX - 1)
+        {
+            // Right Boundary
+            de = DC[i];
+            RHS[i] -= opts->CRight * de * dy/(dx/2);
+            CoeffMatrix[i * 5 + 0] -= de * dy/(dx/2);
+        } else if(simObject[i + 1] == 0)
+        {
+            // East is participating media
+            de = DC[i];
+            CoeffMatrix[i * 5 + 2] = de * dy/dx;
+            CoeffMatrix[i * 5 + 0] -= de * dy/dx;
+        }
+
+        // North
+
+        if (row != 0)
+        {
+            if(simObject[i - nCols] == 0)
+            {
+                // Participating North
+                dn = DC[i];
+                CoeffMatrix[i * 5 + 4] = dn * dx/dy;
+                CoeffMatrix[i * 5 + 0]-= dn * dx/dy;
+            }
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if (simObject[i + nCols] == 0)
+            {
+                // Participating South
+                ds = DC[i];
+                CoeffMatrix[i * 5 + 3] = ds * dx/dy;
+                CoeffMatrix[i * 5 + 0]-= ds * dx/dy;
+            }
+        }
+    } // end for
+
+    FILE* OUT;
+    OUT = fopen("Coeff.csv", "w");
+    fprintf(OUT,"P,W,E,S,N,RHS\n");
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        for(int k = 0; k < 5; k++)
+        {
+            fprintf(OUT,"%1.3e,",CoeffMatrix[i * 5 + k]);
+        }
+        fprintf(OUT,"%1.3e\n", RHS[i]);
+    }
+
+    fclose(OUT);
+
+
+    return 0;
+}
 
 int DiscSS2D_Simple(options *opts,
                     meshInfo *mesh,
@@ -2721,4 +3182,162 @@ int SteadyStateSim3D(options *opts)
     return 0;
 }
 
+int Tau2D_Sim(options *opts)
+{
+    /*
+        Function Tau2D_Sim:
+        Inputs:
+            - pointer to options data structure
+        Outputs:
+            - none
+
+        Function will control the simulation of tortuosity in the 2D structure.
+    */
+    // Initialize required data structures
+
+    meshInfo mesh;
+    tauInfo tInfo;
+
+    // Read the image
+    char *simObject = nullptr;
+    int readFlag = 0;
+
+    readFlag = readImgTau2D(opts, &mesh, &tInfo, simObject);
+
+    // return an error if the image wasn't read properly
+
+    if (readFlag == 1)
+        return 1;
+
+    // set mesh parameters
+
+    mesh.dx = (double)1.0 / mesh.numCellsX;
+    mesh.dy = (double)1.0 / mesh.numCellsY;
+
+    // Create arrays for BC's and DC's
+
+    double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
+
+    // initialize arrays
+
+    memset(DC, 0, sizeof(double) * mesh.nElements);
+
+    // Populate the array with the diffusion coefficients
+
+    SetDC2D_Tau(opts, &mesh, DC, simObject);
+
+    // Flood-Fill for non-participating media
+
+    FloodFill2D_Tort(&mesh, simObject, &tInfo);
+
+    // Discretize
+
+    // Allocate arrays for holding discretized equations
+
+    double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
+    double *RHS = (double *)malloc(mesh.nElements * sizeof(double));
+    double *Concentration = (double *)malloc(mesh.nElements * sizeof(double));
+
+    // initialize the memory
+
+    memset(CoeffMatrix, 0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS, 0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0, mesh.nElements * sizeof(double));
+
+    // Linear initialize concentration
+
+    for (int i = 0; i < mesh.nElements; i++)
+    {
+        int row = i / mesh.numCellsX;
+        int col = i - row * mesh.numCellsX;
+        Concentration[i] = ((double)col / mesh.numCellsX) * (opts->CRight - opts->CLeft) + opts->CLeft;
+        if (DC[i] == 0)
+            Concentration[i] = 0;
+    }
+
+    // Discretize equations
+
+    Disc2D_Tau(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+
+    // Solve !
+    if (opts->useGPU == 0)
+    {
+        omp_set_num_threads(opts->nThreads);
+
+        GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+    }
+    else
+    {
+        // Now we confirm that there is a match in GPUs available and user expectations
+
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+
+        // Declare needed arrays
+
+        double *d_Coeff = NULL;
+        double *d_RHS = NULL;
+        double *d_Conc = NULL;
+        double *d_ConcTemp = NULL;
+
+        // Initialize the GPU arrays
+
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+
+        // // Solve
+
+        JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                 d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+
+        // // Free GPU memory
+
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }
+
+    FILE *OUT;
+
+    OUT = fopen("Tau.csv", "w");
+    fprintf(OUT, "x,y,C\n");
+    for (int i = 0; i < mesh.numCellsY; i++)
+    {
+        for (int j = 0; j < mesh.numCellsX; j++)
+        {
+            if (Concentration[i * mesh.numCellsX + j] != Concentration[i * mesh.numCellsX + j])
+            {
+                Concentration[i * mesh.numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j, i);
+            }
+
+            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh.numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+
+    // Memory management
+
+    free(RHS);
+    free(CoeffMatrix);
+    free(Concentration);
+
+    free(DC);
+
+    free(simObject);
+
+    printf("Done?\n");
+
+    return 0;
+}
 #endif

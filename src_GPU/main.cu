@@ -18,13 +18,18 @@ int main(int argc, char **argv)
 
     if(opts.tauSim == 1)
     {
-        if(opts.verbose) printOptions(&opts);
+        if(opts.verbose) printOpts_Tau(&opts);
+        if(opts.nD == 3)
+        {
+            // Tau3D_Sim;
+        } else if(opts.nD == 2)
+        {
+            Tau2D_Sim(&opts);
+        }
     }
-
-    if(opts.verbose) printOptions(&opts);
-
-    if(opts.nD == 3)
+    else if(opts.nD == 3)
     {
+        if(opts.verbose) printOptions(&opts);
         if(opts.SteadyStateFlag == 1)
         {
             SteadyStateSim3D(&opts);
@@ -32,11 +37,16 @@ int main(int argc, char **argv)
     }
     else if(opts.nD == 2)
     {
+        if(opts.verbose) printOptions(&opts);
         if(opts.SteadyStateFlag == 1)
         {
             SteadyStateSim2D(&opts);
         }
     }
+
+    
+
+    
     
     return 0;
 }
