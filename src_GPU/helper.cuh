@@ -171,7 +171,7 @@ __global__ void JI_SOR3D_kernel(
         double sigma = 0;
         for (int j = 1; j < 7; j++)
         {
-            if (A[myIdx * 7 + j] != 0)
+            if (A[myIdx * 7 + j] > 1e-15)
             {
                 if (j == 1)
                 {
@@ -746,6 +746,93 @@ int readCSV3D(options *opts, char *simObject)
 
     return 0;
 }
+
+int readCSV3D_noPhase(options *opts, char *simObject)
+{
+    /*
+        Function readCSV3D_noPhase:
+        Inputs:
+            - pointer to options data structure
+            - pointer to simObject array, where the structure will be saved
+                with the appropriate flags.
+        Output:
+            - None
+
+        The function will populate the simObject array according to the data in the
+        input .csv file. This function assumes information in the file is all solid,
+        other phase is void (binary). Solid is given D[1], pore space is D[0]
+
+    */
+    // read structure
+    int height, width, depth;
+    long int nElements;
+
+    height = opts->height;
+    width = opts->width;
+    depth = opts->depth;
+    nElements = height * width * depth;
+
+    // declare arrays to hold coordinates for all specified phases
+
+    int *x = (int *)malloc(sizeof(int) * nElements);
+    int *y = (int *)malloc(sizeof(int) * nElements);
+    int *z = (int *)malloc(sizeof(int) * nElements);
+    int *phase = (int *)malloc(sizeof(int) * nElements);
+
+    // set phase = 0
+
+    memset(phase, 0, sizeof(int)*nElements);
+
+    // Read structure file
+
+    FILE *target_data;
+
+    target_data = fopen(opts->inputFilename, "r");
+
+    // check if file exists
+
+    if (target_data == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[20];
+
+    fscanf(target_data, "%c,%c,%c", &header[0], &header[1], &header[2]);
+
+    // if (opts->verbose) printf("Header = %s\n", header);      // debug mainly
+
+    // read coordinates from input file
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%d,%d,%d", &x[count], &y[count], &z[count]) == 3)
+    {
+        count++;
+    }
+
+    printf("SVF = %lf\n", (double)count/nElements);
+
+    long int index = 0;
+
+    for (long int i = 0; i < count; i++)
+    {
+        index = z[i] * height * width + y[i] * width + x[i];
+        phase[index] = 1;
+        simObject[index] = phase[index]; // the diffusivities later are assigned based on this number
+    }
+
+    // memory management
+
+    free(x);
+    free(y);
+    free(z);
+    free(phase);
+
+    return 0;
+}
+
 
 int readImgTau2D(options *opts, meshInfo *mesh, tauInfo *tInfo, char *&simObject)
 {
@@ -2581,9 +2668,13 @@ int JI3D_SOR(double *Coeff,
         convergence criteria, and kernel coordination.
     */
 
+    printf("Starting Main Loop!\n");
+
     long int iterCount = 0;
     int threads_per_block = 128;
     int numBlocks = mesh->nElements / threads_per_block + 1;
+
+    printf("Th Num = %d, BLK Num = %d\n", threads_per_block, numBlocks);
 
     double pctChange = 1;
     int iterToCheck = 1000;
@@ -2616,13 +2707,15 @@ int JI3D_SOR(double *Coeff,
 
         JI_SOR3D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
                                                           mesh->nElements, mesh->numCellsX, mesh->numCellsY);
-        // check convergence
+        
+        CHECK_CUDA(cudaGetLastError());
 
+        // check convergence
         if (iterCount % iterToCheck == 0 && iterCount != 0)
         {
             // copy array from device to host
             CHECK_CUDA(cudaMemcpy(Concentration, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
-
+            cudaDeviceSynchronize();
             // compare
             double sum = 0;
             long int count = 0;
@@ -2639,6 +2732,11 @@ int JI3D_SOR(double *Coeff,
             pctChange = sum / count;
             // copy memory to temp conc
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+        }
+
+        if(iterCount % 10000 == 0)
+        {
+            printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
         }
 
         // update d_Conc = d_ConcTemp
@@ -3028,9 +3126,9 @@ int SteadyStateSim3D(options *opts)
     char *simObject = (char *)malloc(opts->height * opts->width * opts->depth * sizeof(char));
 
     memset(simObject, 0, opts->height * opts->width * opts->depth * sizeof(char)); // initialized to pore-space
-
+    printf("Read img\n");
     readCSV3D(opts, simObject);
-
+    // readCSV3D_noPhase(opts, simObject);
     // Declare and define BC's and DC's for the domain
 
     double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
@@ -3046,10 +3144,11 @@ int SteadyStateSim3D(options *opts)
     // note BC array has space for ``ghost'' grid boundaries
 
     // Set DC's
-
+    printf("Set DCs\n");
     SetDC3D(opts, &mesh, DC, simObject);
 
     // Set BC's
+    printf("Set BCs\n");
 
     SetBC_DeffSetup3D(opts, &mesh, BC, BC_Value);
 
@@ -3069,6 +3168,7 @@ int SteadyStateSim3D(options *opts)
     }
 
     // If any phase is impermeable, need to find all participating media
+    printf("Flood Fill\n");
 
     FloodFill3D_DeffSetup(&mesh, BC, DC);
 
@@ -3097,6 +3197,7 @@ int SteadyStateSim3D(options *opts)
         }
     }
     // Discretize
+    printf("Disc\n");
 
     DiscSS3D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
 
@@ -3152,7 +3253,7 @@ int SteadyStateSim3D(options *opts)
 
     FILE *OUT;
 
-    OUT = fopen("ConDist3D.csv", "w");
+    OUT = fopen("rec_729_Cdist.csv", "w");
     fprintf(OUT, "x,y,z,c\n");
     for (int i = 0; i < mesh.numCellsY; i++)
     {
@@ -3160,7 +3261,7 @@ int SteadyStateSim3D(options *opts)
         {
             for (int k = 0; k < mesh.numCellsZ; k++)
             {
-                fprintf(OUT, "%d,%d,%d,%1.3e\n", j, i, k, Concentration[k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + j]);
+                fprintf(OUT, "%d,%d,%d,%1.3lf\n", j, i, k, Concentration[k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + j]);
             }
         }
     }
@@ -3306,6 +3407,8 @@ int Tau2D_Sim(options *opts)
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
 
+    // print output concentration map
+
     FILE *OUT;
 
     OUT = fopen("Tau.csv", "w");
@@ -3325,6 +3428,27 @@ int Tau2D_Sim(options *opts)
     }
 
     fclose(OUT);
+
+    // Calculate Tortuosity
+
+    double Q1 = 0;
+    double Q2 = 0;
+    int right = mesh.numCellsX - 1;
+    int left = 0;
+    for(int j = 0; j < mesh.numCellsY; j++)
+    {
+        Q1 += DC[j*mesh.numCellsX + left] * (Concentration[j*mesh.numCellsX + left] - opts->CLeft) / (mesh.dx/2);
+        Q2 += DC[j*mesh.numCellsX + right] * (opts->CRight - Concentration[j*mesh.numCellsX + right]) / (mesh.dx/2);
+    }
+
+    double qAvg = (Q1 + Q2) / (2.0 * mesh.numCellsY);
+
+    tInfo.Deff_TH_MAX = tInfo.VF * 1.0;
+    tInfo.Deff = qAvg/(opts->CRight - opts->CLeft);
+    tInfo.Tau = tInfo.Deff_TH_MAX/tInfo.Deff;
+
+    printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n", 
+        tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
 
     // Memory management
 
