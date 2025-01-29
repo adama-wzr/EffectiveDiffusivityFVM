@@ -1047,6 +1047,43 @@ int SetDC2D_Tau(options *opts, meshInfo *mesh, double *DC, char *simObject)
     return 0;
 }
 
+int SetDC3D_Tau(options *opts, meshInfo *mesh, double *DC, char *simObject)
+{
+    /*
+        Function SetDC3D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to DC, an array where the diffusion coefficients will be stored
+            - pointer to simObject, where structure and phase information was originally stored.
+        Outputs:
+            - None.
+        The function will set the diffusion coefficient on DC, according to the
+        phases given by the simObject array and user options.
+    */
+
+    for (int k = 0; k < mesh->numCellsZ; k++)
+    {
+        for (int i = 0; i < mesh->numCellsY; i++)
+        {
+            for (int j = 0; j < mesh->numCellsX; j++)
+            {
+                // index for original array
+                int targetRow = i / opts->MeshIncreaseY;
+                int targetCol = j / opts->MeshIncreaseX;
+                int targetSlice = k / opts->MeshIncreaseZ;
+                int targetIndex = targetSlice * opts->height * opts->width + targetRow * opts->width + targetCol;
+                // index for array with meshAmp
+                int index = k * mesh->numCellsX * mesh->numCellsY + i * mesh->numCellsX + j;
+                // Identify phase and diffusion coefficient
+                if(simObject[targetIndex] < 1e-10) DC[index] = 1;
+            }
+        }
+    }
+
+    return 0;
+}
+
 
 int SetDC2D(options *opts, meshInfo *mesh, double *DC, char *simObject)
 {
@@ -1599,6 +1636,219 @@ int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
     return 0;
 }
 
+int FloodFill3D_Tau(meshInfo *mesh, double *DC, tauInfo *tInfo)
+{
+    /*
+        FloodFill3D_Tau function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to array with DC's
+        Outputs:
+            - None
+
+        The function will search the domain, and will find non-participating media.
+        The non-participating media will have the diffusion coefficient set to 0, and
+        will receive the "wall" treatment.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    long int count = 0;
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        if (DC[index] == 0)
+        {
+            Domain[index] = 1;
+        }
+        else
+        {
+            Domain[index] = -1;
+            count++;
+        }
+    }
+
+    // calculate VF
+
+    tInfo->VF = (double)count/mesh->nElements;
+
+    // Find Fluid in both boundaries, add to open list
+
+    std::set<coord> cList;
+
+    int left = 0;
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        for (int slice = 0; slice < mesh->numCellsZ; slice++)
+        {
+            long int indexL = slice * mesh->numCellsX * mesh->numCellsY + row * mesh->numCellsX + left;
+            long int indexR = slice * mesh->numCellsX * mesh->numCellsY + row * mesh->numCellsX + right;
+            // set left
+            if (Domain[indexL] == -1)
+            {
+                Domain[indexL] = 0;
+                cList.insert(std::tuple(left, row, slice));
+            }
+            // set right
+            if (Domain[indexR] == -1)
+            {
+                Domain[indexR] = 0;
+                cList.insert(std::tuple(right, row, slice));
+            }
+        }
+    }
+
+    // Search Full Domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coord pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // get coordinates from the list
+        int col = std::get<0>(pop);
+        int row = std::get<1>(pop);
+        int slice = std::get<2>(pop);
+
+        /*
+            We need to check North, South, East, West, Back, and Front for more fluid:
+
+            North = col + 0, row - 1, slice + 0
+            South = col + 0, row + 1, slice + 0
+            East  = col + 1, row + 0, slice + 0
+            West  = col - 1, row + 0, slice + 0
+            Front = col + 0, row + 0, slice - 1
+            Back  = col + 0, row + 0, slice + 1
+
+            Note that diagonals are not considered a connection.
+            This code assumes no periodic boundary conditions (currently).
+        */
+
+        int tempRow, tempCol, tempSlice;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+        tempSlice = slice;
+
+        if (row != 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // Front
+
+        tempCol = col;
+        tempRow = row;
+
+        if (slice != 0)
+        {
+            tempSlice = slice - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // Back
+
+        if (slice != mesh->numCellsZ - 1)
+        {
+            tempSlice = slice + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+        tempSlice = slice;
+
+        if (col != 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // East
+
+        if (col != mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+        // repeat until cList is empty
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    long int npCount = 0;
+
+    for (int index = 0; index < mesh->nElements; index++)
+    {
+        if (Domain[index] != -1)
+        {
+            continue;
+        }
+        else
+            DC[index] = 0;
+            npCount++;
+    }
+
+    // Calculate effective volume fraction
+    
+    tInfo->eVF = (double)(count - npCount)/mesh->nElements;
+
+    // memory management
+    free(Domain);
+
+    return 0;
+}
+
+
 int FloodFill3D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
     /*
@@ -1947,23 +2197,176 @@ int Disc2D_Tau(options *opts,
         }
     } // end for
 
-    FILE* OUT;
-    OUT = fopen("Coeff.csv", "w");
-    fprintf(OUT,"P,W,E,S,N,RHS\n");
-    for(int i = 0; i < mesh->nElements; i++)
+    return 0;
+}
+
+int Disc3D_Tau(options *opts,
+               meshInfo *mesh,
+               double *DC,
+               double *CoeffMatrix,
+               double *RHS)
+{
+    /*
+        Function Disc3D_Tau:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization for a simulation of tortuosity. It will populate the
+        Coefficient Matrix array and the RHS array (where BC's are held).
+    */
+
+    // Set necessary variables
+
+    int nCols, nRows;
+    nCols = mesh->numCellsX;
+    nRows = mesh->numCellsY;
+
+    double dx, dy, dz;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dz = mesh->dz;
+
+    int row, col, slice;
+    double dw, de, ds, dn, db, df;
+
+    for (long int i = 0; i < mesh->nElements; i++)
     {
-        for(int k = 0; k < 5; k++)
+        // dissolve index into rows and cols
+        slice = i / (nRows * nCols);
+        row = (i - slice * nRows * nCols) / nCols;
+        col = (i - slice * nRows * nCols - row * nCols);
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 7; k++)
         {
-            fprintf(OUT,"%1.3e,",CoeffMatrix[i * 5 + k]);
+            CoeffMatrix[i * 7 + k] = 0;
         }
-        fprintf(OUT,"%1.3e\n", RHS[i]);
-    }
 
-    fclose(OUT);
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
 
+        if (DC[i] == 0)
+        {
+            // 1 * phi = 0;
+            CoeffMatrix[i * 7 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Participating fluid
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+            5 : B       i + nRows * nCols
+            6 : F       i - nRows * nCols
+        */
+
+        // West
+
+        if(col == 0)
+        {
+            // Left boundary
+            dw = DC[i];
+            RHS[i] -= opts->CLeft * dw * (dy * dz)/(dx/2);
+            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) /(dx/2);
+        } else if(DC[i - 1] != 0)
+        {
+            // West is participating media
+            dw = DC[i];
+            CoeffMatrix[i * 7 + 1] = dw * (dy * dz)/dx;
+            CoeffMatrix[i * 7 + 0]-= dw * (dy * dz)/dx;
+        }
+
+        // East
+
+        if(col == mesh->numCellsX - 1)
+        {
+            // Right boundary
+            de = DC[i];
+            RHS[i] -= opts->CRight * de * (dy * dz)/(dx/2);
+            CoeffMatrix[i * 7 + 0]-= de * (dy * dz)/(dx/2);
+        }else if(DC[i + 1] != 0)
+        {
+            // East is participating media
+            de = DC[i];
+            CoeffMatrix[i * 7 + 2] = de * (dy * dz)/dx;
+            CoeffMatrix[i * 7 + 0]-= de * (dy * dz)/dx;
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if (DC[i + nCols] != 0)
+            {
+                // Participating South
+                ds = DC[i];
+                CoeffMatrix[i * 7 + 3] = ds * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0]-= ds * (dx * dz) / dy;
+            }
+        }
+
+        // North
+
+        if(row != 0)
+        {
+            if (DC[i - nCols] != 0)
+            {
+                // Participating North
+                dn = DC[i];
+                CoeffMatrix[i * 7 + 4] = dn * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0]-= dn * (dx * dz) / dy;
+            }
+        }
+
+        // Back
+
+        if (slice != mesh->numCellsZ - 1)
+        {
+            if (DC[i + nCols * nRows] != 0)
+            {
+                // Participating Back
+                db = DC[i];
+                CoeffMatrix[i * 7 + 5] = db * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0]-= db * (dx * dy) / dz;
+            }
+        }
+
+        // Front
+
+        if (slice != 0)
+        {
+            if (DC[i - nCols * nRows] != 0)
+            {
+                // Participating Front
+                df = DC[i];
+                CoeffMatrix[i * 7 + 6] = df * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0]-= df * (dx * dy) / dz;
+            }
+        }
+
+    } // end for
 
     return 0;
 }
+
 
 int DiscSS2D_Simple(options *opts,
                     meshInfo *mesh,
@@ -3464,4 +3867,207 @@ int Tau2D_Sim(options *opts)
 
     return 0;
 }
+
+
+int Tau3D_Sim(options *opts)
+{
+    /*
+        Function Tau3D_Sim:
+        Inputs:
+            - pointer to options data structure
+        Outputs:
+            - none
+
+        Function will control the simulation of tortuosity in the 3D structure.
+    */
+    // Initialize required data structures
+
+    meshInfo mesh;
+    tauInfo tInfo;
+
+    // populate mesh info with available information
+
+    mesh.numCellsX = opts->width * opts->MeshIncreaseX;
+    mesh.numCellsY = opts->height * opts->MeshIncreaseY;
+    mesh.numCellsZ = opts->depth * opts->MeshIncreaseZ;
+
+    mesh.nElements = mesh.numCellsX * mesh.numCellsY * mesh.numCellsZ;
+
+    mesh.dx = (double)1.0 / mesh.numCellsX;
+    mesh.dy = (double)1.0 / mesh.numCellsY;
+    mesh.dz = (double)1.0 / mesh.numCellsZ;
+
+    // Read structure
+
+    char *simObject = (char *)malloc(opts->height * opts->width * opts->depth * sizeof(char));
+
+    memset(simObject, 0, opts->height * opts->width * opts->depth * sizeof(char)); // initialized to pore-space
+    
+    printf("Read img\n");
+    
+    readCSV3D(opts, simObject);
+
+    // Declare and define DC in the main flow channel
+
+    double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
+
+    memset(DC, 0, mesh.nElements * sizeof(double));
+
+    // note BC array has space for ``ghost'' grid boundaries
+
+    // Set DC's
+
+    printf("Set DCs\n");
+
+    SetDC3D_Tau(opts, &mesh, DC, simObject);
+
+    // If any phase is impermeable, need to find all participating media
+    printf("Flood Fill\n");
+
+    FloodFill3D_Tau(&mesh, DC, &tInfo);
+
+    // Allocate arrays for holding discretized equations
+
+    double *CoeffMatrix = (double *)malloc(mesh.nElements * 7 * sizeof(double));
+    double *RHS = (double *)malloc(mesh.nElements * sizeof(double));
+    double *Concentration = (double *)malloc(mesh.nElements * sizeof(double));
+
+    // initialize the memory
+
+    memset(CoeffMatrix, 0, mesh.nElements * sizeof(double) * 7);
+    memset(RHS, 0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0, mesh.nElements * sizeof(double));
+
+    // Linear initialize concentration
+
+    for (int i = 0; i < mesh.nElements; i++)
+    {
+        int slice = i / (mesh.numCellsX * mesh.numCellsY);
+        int row = (i - slice * mesh.numCellsX * mesh.numCellsY) / mesh.numCellsX;
+        int col = (i - slice * mesh.numCellsX * mesh.numCellsY - row * mesh.numCellsX);
+        Concentration[i] = ((double)col / mesh.numCellsX) * (opts->CRight - opts->CLeft) + opts->CLeft;
+        if (DC[i] == 0)
+            Concentration[i] = 0;
+    }
+
+    // Discretize System
+
+    printf("Discretize\n");
+
+    Disc3D_Tau(opts, &mesh, DC, CoeffMatrix, RHS);
+
+    printf("Solve\n");
+
+    // Solve!
+
+    if (opts->useGPU == 0)
+    {
+        // CPU Solve
+
+        omp_set_num_threads(opts->nThreads);
+
+        GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+    }
+    else
+    {
+        // Now we confirm that there is a match in GPUs available and user expectations
+
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+
+        // Declare needed arrays
+
+        double *d_Coeff = NULL;
+        double *d_RHS = NULL;
+        double *d_Conc = NULL;
+        double *d_ConcTemp = NULL;
+
+        // Initialize the GPU arrays
+
+        initGPU_3DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+
+        // Solve
+
+        JI3D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                 d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+
+        // Free GPU memory
+
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }
+
+    // Print concentration output
+
+    FILE *OUT;
+
+    OUT = fopen("TauTest_C.csv", "w");
+    fprintf(OUT, "x,y,z,c\n");
+    for (int i = 0; i < mesh.numCellsY; i++)
+    {
+        for (int j = 0; j < mesh.numCellsX; j++)
+        {
+            for (int k = 0; k < mesh.numCellsZ; k++)
+            {
+                fprintf(OUT, "%d,%d,%d,%1.3lf\n", j, i, k, Concentration[k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + j]);
+            }
+        }
+    }
+
+    fclose(OUT);
+
+    // Calculate Tortuosity
+
+    double Q1 = 0;
+    double Q2 = 0;
+    int right = mesh.numCellsX - 1;
+    int left = 0;
+
+    for (int k = 0; k < mesh.numCellsZ; k++)
+    {
+        for (int i = 0; i < mesh.numCellsY; i++)
+        {
+            long int indexL = k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + left;
+            long int indexR = k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + right;
+            Q1 += DC[indexL] * (Concentration[indexL] - opts->CLeft) / (mesh.dx / 2);
+            Q2 += DC[indexR] * (opts->CRight - Concentration[indexR]) / (mesh.dx / 2);
+        }
+    }
+
+    double qAvg = (Q1 + Q2) / (2.0 * mesh.numCellsY * mesh.numCellsX);
+
+    tInfo.Deff_TH_MAX = tInfo.VF * 1.0;
+    tInfo.Deff = qAvg / (opts->CRight - opts->CLeft);
+    tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
+
+    // terminal output
+
+    printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
+           tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
+
+    // Memory management
+
+    free(RHS);
+    free(CoeffMatrix);
+    free(Concentration);
+
+    free(DC);
+
+    free(simObject);
+
+    return 0;
+}
+
+
 #endif

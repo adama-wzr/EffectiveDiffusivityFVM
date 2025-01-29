@@ -21,7 +21,7 @@ int main(int argc, char **argv)
         if(opts.verbose) printOpts_Tau(&opts);
         if(opts.nD == 3)
         {
-            // Tau3D_Sim;
+            Tau3D_Sim(&opts);
         } else if(opts.nD == 2)
         {
             Tau2D_Sim(&opts);

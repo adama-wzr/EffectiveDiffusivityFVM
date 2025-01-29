@@ -1,0 +1,20 @@
+Example Input File:
+nD: 2
+inputType: 2
+POI_LB: 0
+POI_UB: 180
+printOutput: 1
+OutputName: testOut.csv
+printCMap: 1
+CMapName: testCMap.csv
+SS: 1
+Convergence: 1e-6
+MaxIter: 1e6
+CL: 0
+CR: 1
+InputName: 00010.jpg
+nThreads: 16
+Verbose: 1
+useGPU: 1
+nGPU: 1
+tauSim: 1
