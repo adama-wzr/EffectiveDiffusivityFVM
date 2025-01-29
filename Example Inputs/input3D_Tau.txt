@@ -1,8 +1,9 @@
 Example Input File:
-nD: 2
-inputType: 2
-POI_LB: 0
-POI_UB: 180
+nD: 3
+inputType: 0
+width: 128
+height: 128
+depth: 128
 printOutput: 1
 OutputName: testOut.csv
 printCMap: 1
@@ -12,7 +13,7 @@ Convergence: 1e-6
 MaxIter: 1e6
 CL: 0
 CR: 1
-InputName: 00010.jpg
+InputName: Schwarz091.csv
 nThreads: 16
 Verbose: 1
 useGPU: 1

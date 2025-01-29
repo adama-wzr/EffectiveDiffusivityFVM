@@ -17,9 +17,11 @@ printCMap: 1
 CMapName: testCMap.csv
 SS: 1
 Convergence: 1e-5
-MaxIter: 1e5
+MaxIter: 1e6
 CL: 0
 CR: 1
-InputName: Schwarz091.csv
+InputName: Schwarz163.csv
 nThreads: 16
 Verbose: 1
+useGPU: 1
+nGPU: 1
