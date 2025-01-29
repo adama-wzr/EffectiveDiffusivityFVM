@@ -120,6 +120,8 @@ typedef struct
     double dx;
     double dy;
     double dz;
+    long int iterCount;
+    double conv;
 } meshInfo;
 
 // Tortuosity related output
@@ -781,7 +783,7 @@ int readCSV3D_noPhase(options *opts, char *simObject)
 
     // set phase = 0
 
-    memset(phase, 0, sizeof(int)*nElements);
+    memset(phase, 0, sizeof(int) * nElements);
 
     // Read structure file
 
@@ -812,7 +814,7 @@ int readCSV3D_noPhase(options *opts, char *simObject)
         count++;
     }
 
-    printf("SVF = %lf\n", (double)count/nElements);
+    printf("SVF = %lf\n", (double)count / nElements);
 
     long int index = 0;
 
@@ -832,7 +834,6 @@ int readCSV3D_noPhase(options *opts, char *simObject)
 
     return 0;
 }
-
 
 int readImgTau2D(options *opts, meshInfo *mesh, tauInfo *tInfo, char *&simObject)
 {
@@ -906,7 +907,8 @@ int readImgTau2D(options *opts, meshInfo *mesh, tauInfo *tInfo, char *&simObject
             {
                 simObject[row * mesh->numCellsX + col] = 0; // participating media
                 count++;
-            } else
+            }
+            else
             {
                 simObject[row * mesh->numCellsX + col] = 1; // other non-participating media
             }
@@ -914,8 +916,8 @@ int readImgTau2D(options *opts, meshInfo *mesh, tauInfo *tInfo, char *&simObject
     }
 
     // Update volume fraction
-    
-    tInfo->VF = (float)count/mesh->nElements;
+
+    tInfo->VF = (float)count / mesh->nElements;
 
     return 0;
 }
@@ -993,6 +995,69 @@ int readImg2D(options *opts, meshInfo *mesh, char *&simObject)
 
 /*
 
+    Printing Output Files:
+
+*/
+
+int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
+{
+    /*
+        printOutputTau Function:
+        Inputs:
+            - pointer to user options struct
+            - pointer to mesh info struct
+            - pointer to tauInfo struct
+        Output:
+            - None
+
+        Function will print the output from running the code to a output file
+        taking in consideration the user options.
+    */
+
+    bool headerFlag = true;
+
+    // Check if file exists
+
+    if (FILE *TEST = fopen(opts->outputFilename, "r"))
+    {
+        fclose(TEST);
+        headerFlag = false;
+    }
+
+    // Open file
+
+    FILE *OUT = fopen(opts->outputFilename, "a+");
+
+    if (headerFlag)
+    {
+        if (opts->nD == 2)
+        {
+            fprintf(OUT, "inputName,nX,nY,Iter,Conv,COM,VF,eVF,Deff,DeffMax,Tau\n");
+        }
+        else if (opts->nD == 3)
+        {
+            fprintf(OUT, "inputName,nX,nY,nZ,Iter,Conv,COM,VF,eVF,Deff,DeffMax,Tau\n");
+        }
+    }
+
+    // print output from inputs
+
+    fprintf(OUT, "%s,%d,%d,", opts->inputFilename, mesh->numCellsX, mesh->numCellsY);
+
+    if (opts->nD == 3)
+        fprintf(OUT, "%d,", mesh->numCellsZ);
+
+    // print results
+
+    fprintf(OUT, "%ld,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e\n", mesh->iterCount,
+            mesh->conv, 0.0, tInfo->VF, tInfo->eVF, tInfo->Deff, tInfo->Deff_TH_MAX, tInfo->Tau);
+    // close file
+    fclose(OUT);
+    return 0;
+}
+
+/*
+
     Auxiliary Functions:
 
 */
@@ -1041,7 +1106,8 @@ int SetDC2D_Tau(options *opts, meshInfo *mesh, double *DC, char *simObject)
     {
         for (int j = 0; j < mesh->numCellsX; j++)
         {
-            if(simObject[i * mesh->numCellsX + j] == 0) DC[i * mesh->numCellsX + j] = 1;
+            if (simObject[i * mesh->numCellsX + j] == 0)
+                DC[i * mesh->numCellsX + j] = 1;
         }
     }
     return 0;
@@ -1076,14 +1142,14 @@ int SetDC3D_Tau(options *opts, meshInfo *mesh, double *DC, char *simObject)
                 // index for array with meshAmp
                 int index = k * mesh->numCellsX * mesh->numCellsY + i * mesh->numCellsX + j;
                 // Identify phase and diffusion coefficient
-                if(simObject[targetIndex] < 1e-10) DC[index] = 1;
+                if (simObject[targetIndex] < 1e-10)
+                    DC[index] = 1;
             }
         }
     }
 
     return 0;
 }
-
 
 int SetDC2D(options *opts, meshInfo *mesh, double *DC, char *simObject)
 {
@@ -1319,10 +1385,12 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 
     // Initialize all the impermeable matter in the domain:
 
-    for(int i = 0; i < mesh->nElements; i++)
+    for (int i = 0; i < mesh->nElements; i++)
     {
-        if(simObject[i] == 0) Domain[i] = -1;   // permeable media
-        else Domain[i] = 1;                     // impermeable
+        if (simObject[i] == 0)
+            Domain[i] = -1; // permeable media
+        else
+            Domain[i] = 1; // impermeable
     }
 
     // Find pereable boundaries, add to list
@@ -1444,13 +1512,15 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 
     long int count = 0;
 
-    for(int i = 0; i < mesh->nElements; i++)
+    for (int i = 0; i < mesh->nElements; i++)
     {
-        if( Domain[i] == -1) simObject[i] = 1;
-        else if (Domain[i] == 0) count++;
+        if (Domain[i] == -1)
+            simObject[i] = 1;
+        else if (Domain[i] == 0)
+            count++;
     }
 
-    tInfo->eVF = (float)count/mesh->nElements;
+    tInfo->eVF = (float)count / mesh->nElements;
 
     // Memory management
 
@@ -1458,7 +1528,6 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 
     return 0;
 }
-
 
 int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
@@ -1672,7 +1741,7 @@ int FloodFill3D_Tau(meshInfo *mesh, double *DC, tauInfo *tInfo)
 
     // calculate VF
 
-    tInfo->VF = (double)count/mesh->nElements;
+    tInfo->VF = (double)count / mesh->nElements;
 
     // Find Fluid in both boundaries, add to open list
 
@@ -1835,19 +1904,18 @@ int FloodFill3D_Tau(meshInfo *mesh, double *DC, tauInfo *tInfo)
         }
         else
             DC[index] = 0;
-            npCount++;
+        npCount++;
     }
 
     // Calculate effective volume fraction
-    
-    tInfo->eVF = (double)(count - npCount)/mesh->nElements;
+
+    tInfo->eVF = (double)(count - npCount) / mesh->nElements;
 
     // memory management
     free(Domain);
 
     return 0;
 }
-
 
 int FloodFill3D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
@@ -2086,7 +2154,7 @@ int Disc2D_Tau(options *opts,
         Function creates a discretization for a simulation of tortuosity. It will populate the
         Coefficient Matrix array and the RHS array (where BC's are held).
     */
-     // Set necessary variables
+    // Set necessary variables
 
     int nCols;
     nCols = mesh->numCellsX;
@@ -2140,46 +2208,48 @@ int Disc2D_Tau(options *opts,
 
         // West
 
-        if(col == 0)
+        if (col == 0)
         {
             // Left boundary
             dw = DC[i];
-            RHS[i] -= opts->CLeft * dw * dy/(dx/2);
-            CoeffMatrix[i * 5 + 0] -= dw * dy /(dx/2);
-        } else if(simObject[i - 1] == 0)
+            RHS[i] -= opts->CLeft * dw * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= dw * dy / (dx / 2);
+        }
+        else if (simObject[i - 1] == 0)
         {
             // West is participating media
             dw = DC[i];
-            CoeffMatrix[i * 5 + 1] = dw * dy/dx;
-            CoeffMatrix[i * 5 + 0]-= dw * dy/dx;
+            CoeffMatrix[i * 5 + 1] = dw * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= dw * dy / dx;
         }
 
         // East
 
-        if(col == mesh->numCellsX - 1)
+        if (col == mesh->numCellsX - 1)
         {
             // Right Boundary
             de = DC[i];
-            RHS[i] -= opts->CRight * de * dy/(dx/2);
-            CoeffMatrix[i * 5 + 0] -= de * dy/(dx/2);
-        } else if(simObject[i + 1] == 0)
+            RHS[i] -= opts->CRight * de * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= de * dy / (dx / 2);
+        }
+        else if (simObject[i + 1] == 0)
         {
             // East is participating media
             de = DC[i];
-            CoeffMatrix[i * 5 + 2] = de * dy/dx;
-            CoeffMatrix[i * 5 + 0] -= de * dy/dx;
+            CoeffMatrix[i * 5 + 2] = de * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= de * dy / dx;
         }
 
         // North
 
         if (row != 0)
         {
-            if(simObject[i - nCols] == 0)
+            if (simObject[i - nCols] == 0)
             {
                 // Participating North
                 dn = DC[i];
-                CoeffMatrix[i * 5 + 4] = dn * dx/dy;
-                CoeffMatrix[i * 5 + 0]-= dn * dx/dy;
+                CoeffMatrix[i * 5 + 4] = dn * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= dn * dx / dy;
             }
         }
 
@@ -2191,8 +2261,8 @@ int Disc2D_Tau(options *opts,
             {
                 // Participating South
                 ds = DC[i];
-                CoeffMatrix[i * 5 + 3] = ds * dx/dy;
-                CoeffMatrix[i * 5 + 0]-= ds * dx/dy;
+                CoeffMatrix[i * 5 + 3] = ds * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= ds * dx / dy;
             }
         }
     } // end for
@@ -2280,34 +2350,36 @@ int Disc3D_Tau(options *opts,
 
         // West
 
-        if(col == 0)
+        if (col == 0)
         {
             // Left boundary
             dw = DC[i];
-            RHS[i] -= opts->CLeft * dw * (dy * dz)/(dx/2);
-            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) /(dx/2);
-        } else if(DC[i - 1] != 0)
+            RHS[i] -= opts->CLeft * dw * (dy * dz) / (dx / 2);
+            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) / (dx / 2);
+        }
+        else if (DC[i - 1] != 0)
         {
             // West is participating media
             dw = DC[i];
-            CoeffMatrix[i * 7 + 1] = dw * (dy * dz)/dx;
-            CoeffMatrix[i * 7 + 0]-= dw * (dy * dz)/dx;
+            CoeffMatrix[i * 7 + 1] = dw * (dy * dz) / dx;
+            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) / dx;
         }
 
         // East
 
-        if(col == mesh->numCellsX - 1)
+        if (col == mesh->numCellsX - 1)
         {
             // Right boundary
             de = DC[i];
-            RHS[i] -= opts->CRight * de * (dy * dz)/(dx/2);
-            CoeffMatrix[i * 7 + 0]-= de * (dy * dz)/(dx/2);
-        }else if(DC[i + 1] != 0)
+            RHS[i] -= opts->CRight * de * (dy * dz) / (dx / 2);
+            CoeffMatrix[i * 7 + 0] -= de * (dy * dz) / (dx / 2);
+        }
+        else if (DC[i + 1] != 0)
         {
             // East is participating media
             de = DC[i];
-            CoeffMatrix[i * 7 + 2] = de * (dy * dz)/dx;
-            CoeffMatrix[i * 7 + 0]-= de * (dy * dz)/dx;
+            CoeffMatrix[i * 7 + 2] = de * (dy * dz) / dx;
+            CoeffMatrix[i * 7 + 0] -= de * (dy * dz) / dx;
         }
 
         // South
@@ -2319,20 +2391,20 @@ int Disc3D_Tau(options *opts,
                 // Participating South
                 ds = DC[i];
                 CoeffMatrix[i * 7 + 3] = ds * (dx * dz) / dy;
-                CoeffMatrix[i * 7 + 0]-= ds * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= ds * (dx * dz) / dy;
             }
         }
 
         // North
 
-        if(row != 0)
+        if (row != 0)
         {
             if (DC[i - nCols] != 0)
             {
                 // Participating North
                 dn = DC[i];
                 CoeffMatrix[i * 7 + 4] = dn * (dx * dz) / dy;
-                CoeffMatrix[i * 7 + 0]-= dn * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= dn * (dx * dz) / dy;
             }
         }
 
@@ -2345,7 +2417,7 @@ int Disc3D_Tau(options *opts,
                 // Participating Back
                 db = DC[i];
                 CoeffMatrix[i * 7 + 5] = db * (dx * dy) / dz;
-                CoeffMatrix[i * 7 + 0]-= db * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= db * (dx * dy) / dz;
             }
         }
 
@@ -2358,7 +2430,7 @@ int Disc3D_Tau(options *opts,
                 // Participating Front
                 df = DC[i];
                 CoeffMatrix[i * 7 + 6] = df * (dx * dy) / dz;
-                CoeffMatrix[i * 7 + 0]-= df * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= df * (dx * dy) / dz;
             }
         }
 
@@ -2366,7 +2438,6 @@ int Disc3D_Tau(options *opts,
 
     return 0;
 }
-
 
 int DiscSS2D_Simple(options *opts,
                     meshInfo *mesh,
@@ -3038,6 +3109,11 @@ int JI2D_SOR(double *Coeff,
         printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
     }
 
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
+
     return 0;
 }
 
@@ -3071,13 +3147,9 @@ int JI3D_SOR(double *Coeff,
         convergence criteria, and kernel coordination.
     */
 
-    printf("Starting Main Loop!\n");
-
     long int iterCount = 0;
     int threads_per_block = 128;
     int numBlocks = mesh->nElements / threads_per_block + 1;
-
-    printf("Th Num = %d, BLK Num = %d\n", threads_per_block, numBlocks);
 
     double pctChange = 1;
     int iterToCheck = 1000;
@@ -3110,7 +3182,7 @@ int JI3D_SOR(double *Coeff,
 
         JI_SOR3D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
                                                           mesh->nElements, mesh->numCellsX, mesh->numCellsY);
-        
+
         CHECK_CUDA(cudaGetLastError());
 
         // check convergence
@@ -3137,7 +3209,7 @@ int JI3D_SOR(double *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
-        if(iterCount % 10000 == 0)
+        if (iterCount % 10000 == 0 && opts->verbose == 1)
         {
             printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
         }
@@ -3161,6 +3233,11 @@ int JI3D_SOR(double *Coeff,
     {
         printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
     }
+
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
 
     return 0;
 }
@@ -3229,6 +3306,11 @@ int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
     {
         printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
     }
+
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
 
     free(Check);
     return 0;
@@ -3301,6 +3383,11 @@ int GS3D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
     {
         printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
     }
+
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
 
     free(Check);
     return 0;
@@ -3838,23 +3925,34 @@ int Tau2D_Sim(options *opts)
     double Q2 = 0;
     int right = mesh.numCellsX - 1;
     int left = 0;
-    for(int j = 0; j < mesh.numCellsY; j++)
+    for (int j = 0; j < mesh.numCellsY; j++)
     {
-        Q1 += DC[j*mesh.numCellsX + left] * (Concentration[j*mesh.numCellsX + left] - opts->CLeft) / (mesh.dx/2);
-        Q2 += DC[j*mesh.numCellsX + right] * (opts->CRight - Concentration[j*mesh.numCellsX + right]) / (mesh.dx/2);
+        Q1 += DC[j * mesh.numCellsX + left] * (Concentration[j * mesh.numCellsX + left] - opts->CLeft) / (mesh.dx / 2);
+        Q2 += DC[j * mesh.numCellsX + right] * (opts->CRight - Concentration[j * mesh.numCellsX + right]) / (mesh.dx / 2);
     }
 
     double qAvg = (Q1 + Q2) / (2.0 * mesh.numCellsY);
 
     tInfo.Deff_TH_MAX = tInfo.VF * 1.0;
-    tInfo.Deff = qAvg/(opts->CRight - opts->CLeft);
-    tInfo.Tau = tInfo.Deff_TH_MAX/tInfo.Deff;
+    tInfo.Deff = qAvg / (opts->CRight - opts->CLeft);
+    tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
-    printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n", 
-        tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
+    // Output file
+    
+    if (opts->printOut == 1)
+    {
+        printOutputTau(opts, &mesh, &tInfo);
+    }
 
+    // terminal output
+
+    if (opts->verbose == 1)
+    {
+        printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
+               tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
+    }
+    
     // Memory management
-
     free(RHS);
     free(CoeffMatrix);
     free(Concentration);
@@ -3863,11 +3961,8 @@ int Tau2D_Sim(options *opts)
 
     free(simObject);
 
-    printf("Done?\n");
-
     return 0;
 }
-
 
 int Tau3D_Sim(options *opts)
 {
@@ -3902,9 +3997,9 @@ int Tau3D_Sim(options *opts)
     char *simObject = (char *)malloc(opts->height * opts->width * opts->depth * sizeof(char));
 
     memset(simObject, 0, opts->height * opts->width * opts->depth * sizeof(char)); // initialized to pore-space
-    
+
     printf("Read img\n");
-    
+
     readCSV3D(opts, simObject);
 
     // Declare and define DC in the main flow channel
@@ -4010,23 +4105,25 @@ int Tau3D_Sim(options *opts)
 
     // Print concentration output
 
-    FILE *OUT;
-
-    OUT = fopen("TauTest_C.csv", "w");
-    fprintf(OUT, "x,y,z,c\n");
-    for (int i = 0; i < mesh.numCellsY; i++)
+    if (opts->printCmap == 1)
     {
-        for (int j = 0; j < mesh.numCellsX; j++)
+        FILE *OUT;
+
+        OUT = fopen("TauTest_C.csv", "w");
+        fprintf(OUT, "x,y,z,c\n");
+        for (int i = 0; i < mesh.numCellsY; i++)
         {
-            for (int k = 0; k < mesh.numCellsZ; k++)
+            for (int j = 0; j < mesh.numCellsX; j++)
             {
-                fprintf(OUT, "%d,%d,%d,%1.3lf\n", j, i, k, Concentration[k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + j]);
+                for (int k = 0; k < mesh.numCellsZ; k++)
+                {
+                    fprintf(OUT, "%d,%d,%d,%1.3lf\n", j, i, k, Concentration[k * mesh.numCellsX * mesh.numCellsY + i * mesh.numCellsX + j]);
+                }
             }
         }
+
+        fclose(OUT);
     }
-
-    fclose(OUT);
-
     // Calculate Tortuosity
 
     double Q1 = 0;
@@ -4045,16 +4142,26 @@ int Tau3D_Sim(options *opts)
         }
     }
 
-    double qAvg = (Q1 + Q2) / (2.0 * mesh.numCellsY * mesh.numCellsX);
+    double qAvg = (Q1 + Q2) / (2.0 * mesh.numCellsY * mesh.numCellsZ);
 
     tInfo.Deff_TH_MAX = tInfo.VF * 1.0;
     tInfo.Deff = qAvg / (opts->CRight - opts->CLeft);
     tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
+    // Output file
+    
+    if (opts->printOut == 1)
+    {
+        printOutputTau(opts, &mesh, &tInfo);
+    }
+
     // terminal output
 
-    printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
-           tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
+    if (opts->verbose == 1)
+    {
+        printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
+               tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
+    }
 
     // Memory management
 
@@ -4068,6 +4175,5 @@ int Tau3D_Sim(options *opts)
 
     return 0;
 }
-
 
 #endif

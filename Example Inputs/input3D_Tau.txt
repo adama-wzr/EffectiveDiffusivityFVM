@@ -4,6 +4,9 @@ inputType: 0
 width: 128
 height: 128
 depth: 128
+MeshAmpX: 1
+MeshAmpY: 1
+MeshAmpZ: 1
 printOutput: 1
 OutputName: testOut.csv
 printCMap: 1
