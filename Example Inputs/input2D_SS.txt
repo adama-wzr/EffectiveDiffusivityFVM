@@ -1,8 +1,13 @@
 Example Input File:
 nD: 2
+numDC: 3
 inputType: 2
-POI_LB: 0
-POI_UB: 180
+D1: 1237500
+D2: 1
+D3: 0
+D_TH1: 16
+D_TH2: 164
+D_TH3: 255
 printOutput: 1
 OutputName: testOut.csv
 printCMap: 1
@@ -17,4 +22,3 @@ nThreads: 16
 Verbose: 1
 useGPU: 1
 nGPU: 1
-tauSim: 1
