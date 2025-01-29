@@ -1081,6 +1081,88 @@ double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
     return H;
 }
 
+double CoM2D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
+{
+    /*
+        CoM2D Function:
+        Inputs:
+            - pointer to coefficient matrix
+            - pointer to Concentration matrix
+            - pointer to Right-hand side array
+            - pointer to mesh info struc
+        Outputs:
+            - function will return residual = sum(fabs(Ax - b))
+    */
+    double sum = 0;
+    double Ax = 0;
+
+    // set distance offsets to x-vector
+
+    int offset[5];
+
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        Ax = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            if (Coeff[i * 5 + k] != 0)
+                Ax += Coeff[i * 5 + k] * Conc[i + offset[k]];
+        }
+        sum += fabs(Ax - RHS[i]);
+    }
+
+    return sum;
+}
+
+
+double CoM3D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
+{
+    /*
+        CoM3D Function:
+        Inputs:
+            - pointer to coefficient matrix
+            - pointer to Concentration matrix
+            - pointer to Right-hand side array
+            - pointer to mesh info struc
+        Outputs:
+            - function will return residual = sum(fabs(Ax - b))
+    */
+    double sum = 0;
+    double Ax = 0;
+
+    // set distance offsets to x-vector
+
+    int offset[7];
+
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+    offset[5] = mesh->numCellsX * mesh->numCellsY;
+    offset[6] = -mesh->numCellsX * mesh->numCellsY;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        Ax = 0;
+        for (int k = 0; k < 7; k++)
+        {
+            if (Coeff[i * 7 + k] != 0)
+                Ax += Coeff[i * 7 + k] * Conc[i + offset[k]];
+        }
+        sum += fabs(Ax - RHS[i]);
+    }
+
+    return sum;
+}
+
+
 /*
 
     Setting DC's and BC's:
@@ -3938,7 +4020,7 @@ int Tau2D_Sim(options *opts)
     tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
     // Output file
-    
+
     if (opts->printOut == 1)
     {
         printOutputTau(opts, &mesh, &tInfo);
@@ -3951,7 +4033,13 @@ int Tau2D_Sim(options *opts)
         printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
                tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
     }
-    
+
+    // test CoM
+
+    double CoM = CoM2D(CoeffMatrix, Concentration, RHS, &mesh);
+
+    printf("CoM = %lf\n", CoM);
+
     // Memory management
     free(RHS);
     free(CoeffMatrix);
@@ -4149,7 +4237,7 @@ int Tau3D_Sim(options *opts)
     tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
     // Output file
-    
+
     if (opts->printOut == 1)
     {
         printOutputTau(opts, &mesh, &tInfo);
