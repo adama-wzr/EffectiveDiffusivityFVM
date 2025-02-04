@@ -3983,7 +3983,7 @@ int Tau2D_Sim(options *opts)
 
     FILE *OUT;
 
-    OUT = fopen("Tau.csv", "w");
+    OUT = fopen(opts->CMapName, "w");
     fprintf(OUT, "x,y,C\n");
     for (int i = 0; i < mesh.numCellsY; i++)
     {
@@ -4197,7 +4197,7 @@ int Tau3D_Sim(options *opts)
     {
         FILE *OUT;
 
-        OUT = fopen("TauTest_C.csv", "w");
+        OUT = fopen(opts->CMapName, "w");
         fprintf(OUT, "x,y,z,c\n");
         for (int i = 0; i < mesh.numCellsY; i++)
         {
