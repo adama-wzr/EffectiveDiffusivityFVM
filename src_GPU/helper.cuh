@@ -50,6 +50,7 @@ Last Update:
 #include <fstream>
 #include <cfloat>
 #include <set>
+#include <tuple>
 #include <string>
 #include "cuda_runtime.h"
 #include "cuda.h"
