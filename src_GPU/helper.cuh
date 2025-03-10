@@ -3507,8 +3507,14 @@ int SteadyStateSim2D(options *opts)
 
     // return an error if the image wasn't read properly
 
-    if (readFlag == 1)
+    if (readFlag == 1 && opts->verbose)
+    {
+        printf("Error Reading File! Return Code 1\n");
         return 1;
+    } else if(readFlag)
+    {
+        return 1;
+    }
 
     // set mesh parameters
 
@@ -3630,7 +3636,7 @@ int SteadyStateSim2D(options *opts)
 
     FILE *OUT;
 
-    OUT = fopen("ConDist2D.csv", "w");
+    OUT = fopen(opts->CMapName, "w");
     fprintf(OUT, "x,y,C\n");
     for (int i = 0; i < mesh.numCellsY; i++)
     {
@@ -3659,8 +3665,6 @@ int SteadyStateSim2D(options *opts)
     free(DC);
 
     free(simObject);
-
-    printf("Done?\n");
 
     return 0;
 }
