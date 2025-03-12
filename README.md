@@ -77,7 +77,9 @@ Please cite one of the relevant publications shown below (more coming):
 
  ## Documentation
 
-The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository.
+The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository. The documentation only covers the old code in the Deff2D_GPU folder, which was part of the associated publication. A more comprehensive documentation folder will acompany major updates, version releases, and/or new publications.
+
+If there are any questions in the meanwhile, please feel free to reach out to one of the authors.
 
 ## Acknowledgements
 
@@ -102,8 +104,7 @@ The list of new changes and new capabilities to the code will be added as follow
 Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
 
 - GUI:
-  - The actual GUI is a way to facilitate and/or guide the generation of the input file and calling the appropriate code versions based on user input.
-  - The GUI won't be necessary. While code can run from the GUI itself, the code will also run without the GUI.
+  - Running code on the GUI has significant impacts in terms of the overall accuracy. For now, if I do make a GUI at some point, it will mainly handle the input file generation, and not the actual simulation.
 - Higher-order discretization methods.
 - For the GPU code, I will try and implement some of the most recent cuBLAS and cuSPARSE solvers.
 - For the CPU code, implementation of [scaLAPACK](https://www.netlib.org/scalapack/) for solving the sparse systems. I will test those versus the already existing solvers, so we will see what works best.
