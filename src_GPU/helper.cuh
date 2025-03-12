@@ -1163,6 +1163,43 @@ double CoM3D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
     return sum;
 }
 
+void printCMAP2D(options *opts, meshInfo *mesh, double *Concentration)
+{
+
+    /*
+        printCMAP2D:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file using a
+        user entered name.
+
+    */
+    FILE *OUT;
+
+    OUT = fopen(opts->CMapName, "w");
+    fprintf(OUT, "x,y,C\n");
+    for (int i = 0; i < mesh->numCellsY; i++)
+    {
+        for (int j = 0; j < mesh->numCellsX; j++)
+        {
+            if (Concentration[i * mesh->numCellsX + j] != Concentration[i * mesh->numCellsX + j])
+            {
+                Concentration[i * mesh->numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j, i);
+            }
+
+            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh->numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+    return;
+}
 
 /*
 
@@ -3634,26 +3671,11 @@ int SteadyStateSim2D(options *opts)
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
 
-    FILE *OUT;
+    // Print concentration map and mass flux map
 
-    OUT = fopen(opts->CMapName, "w");
-    fprintf(OUT, "x,y,C\n");
-    for (int i = 0; i < mesh.numCellsY; i++)
-    {
-        for (int j = 0; j < mesh.numCellsX; j++)
-        {
-            if (Concentration[i * mesh.numCellsX + j] != Concentration[i * mesh.numCellsX + j])
-            {
-                Concentration[i * mesh.numCellsX + j] = 0;
-                printf("NaN Found at col %d, row %d\n", j, i);
-            }
+    printCMAP2D(opts, &mesh, Concentration);
 
-            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh.numCellsX + j]);
-        }
-    }
-
-    fclose(OUT);
-
+    
     // Memory management
 
     free(RHS);
