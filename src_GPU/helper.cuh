@@ -1238,7 +1238,7 @@ void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double
     */
     FILE *OUT;
 
-    OUT = fopen("test_flux.csv", "w");
+    OUT = fopen(opts->FMapName, "w");
     fprintf(OUT, "x,y,Jx,Jy\n");
     double Jx, Jy;
     double Jw, Je, Jn, Js;
