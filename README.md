@@ -47,7 +47,7 @@ Sometimes, the code may fail to launch the kernel for the GPU. There are multipl
 nvcc -std=c++17 -Xcompiler -openmp -arch=sm_XX main.cu
 ```
 
-where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`).
+where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`). TO verify your compute capability, check here [CUDA GPUs - Compute Capability](https://developer.nvidia.com/cuda-gpus).
 
 ## Required Files
 
