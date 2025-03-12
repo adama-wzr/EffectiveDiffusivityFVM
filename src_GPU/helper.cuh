@@ -108,6 +108,8 @@ typedef struct
     char inputType;          // Input format for 3D simulations (0 default .csv, 1 is stack)
     int useGPU;              // Use GPU or not?
     int nGPU;                // number of GPUs
+    int printFmap;           // dictates if flux map will be printed
+    char *FMapName;         // dictates the name of the output flux map
 } options;
 
 // Mesh related information
@@ -445,6 +447,10 @@ int printOpts_Tau(options *opts)
     {
         printf("CMAP Name: %s\n", opts->CMapName);
     }
+    if (opts->printFmap == 1)
+    {
+        printf("FMAP Name: %s\n", opts->FMapName);
+    }
     if (opts->printOut == 1)
     {
         printf("Output File Name: %s\n", opts->outputFilename);
@@ -492,6 +498,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->inputFilename = (char *)malloc(1000 * sizeof(char));
     opts->outputFilename = (char *)malloc(1000 * sizeof(char));
     opts->CMapName = (char *)malloc(1000 * sizeof(char));
+    opts->FMapName = (char *)malloc(1000 * sizeof(char));
 
     // variables for reading diffusion coefficients (DC) and the thresholds (DC_TH)
 
@@ -659,6 +666,15 @@ void readInputGeneral(char *FileName, options *opts)
         else if (strcmp(tempC, "POI_UB:") == 0)
         {
             opts->POI_B[1] = (unsigned char)tempD;
+        }
+        else if(strcmp(tempC, "printFMap:") == 0)
+        {
+            opts->printFmap = tempD;
+        }
+        else if(strcmp(tempC, "FMapName:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(opts->FMapName, tempFilenames);
         }
 
         // Update the number of expected diffusion coefficients and thresholding for image
@@ -1194,6 +1210,148 @@ void printCMAP2D(options *opts, meshInfo *mesh, double *Concentration)
             }
 
             fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh->numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+    return;
+}
+
+void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double *DC, int *BC, double *BC_values)
+{
+
+    /*
+        printFluxMap2D:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+            - pointer to the diffusion coefficients.
+            - pointer to boundary conditions.
+            - pointer to BC values.
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file using a
+        user entered name.
+
+    */
+    FILE *OUT;
+
+    OUT = fopen("test_flux.csv", "w");
+    fprintf(OUT, "x,y,Jx,Jy\n");
+    double Jx, Jy;
+    double Jw, Je, Jn, Js;
+    double dx = mesh->dx;
+    double dy = mesh->dy;
+
+    double de, dw, ds, dn;
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        for (int col = 0; col < mesh->numCellsX; col++)
+        {
+            
+            int index = row * mesh->numCellsX + col;
+            long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+            Jx = 0;
+            Jy = 0;
+            Js = 0;
+            Jn = 0;
+            Je = 0;
+            Jw = 0;
+            // check if this is non-participating media or boundary condition
+
+            if (BC[indexBC] != 0)
+            {
+                Jx = 0.0;
+                Jy = 0.0;
+                fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
+                continue;
+            }
+
+            // west
+
+            if (BC[indexBC - 1] == 0)
+            {
+                // no west boundary
+                dw = WeightedHarmonicMean(dx/2, dx/2, DC[index], DC[index - 1]);
+                Jw = dw * (dy)/dx * (Concentration[index] - Concentration[index - 1]);
+            } 
+            else if(BC[indexBC - 1] == 1)
+            {
+                // fixed concentration BC
+                dw = DC[index];
+                Jw = dw * (dy)/(dx/2) * (Concentration[index] - BC_values[indexBC - 1]);
+            } else if (BC[indexBC - 1] == 2)
+            {
+                // fixed flux BC
+                Jw = (dy) * BC_values[indexBC - 1];
+            }
+            
+            // East
+
+            if(BC[indexBC + 1] == 0)
+            {
+                // East no boundary
+                de = WeightedHarmonicMean(dx/2, dx/2, DC[index + 1], DC[index + 1]);
+                Je = de * (dy)/dx * (Concentration[index + 1] - Concentration[index]);
+            }
+            else if(BC[indexBC + 1] == 1)
+            {
+                // fixed concentration BC
+                de = DC[index];
+                Je = de * (dy)/(dx/2) * (BC_values[indexBC + 1] - Concentration[index]);
+            }
+            else if(BC[indexBC + 1] == 2)
+            {
+                // fixed flux BC
+                Je = (dy) * BC_values[indexBC + 1];
+            }
+
+            // North
+
+            if(BC[indexBC - (mesh->numCellsX + 2)] == 0)
+            {
+                // North no boundary
+                dn = WeightedHarmonicMean(dy/2, dy/2, DC[index], DC[index - mesh->numCellsX]);
+                Jn = dn * (dx) / dy * (Concentration[index] - Concentration[index - mesh->numCellsX]);
+            }
+            else if (BC[indexBC - (mesh->numCellsX + 2)] == 1)
+            {
+                // fixed concentration BC
+                dn = DC[index];
+                Jn = dn * (dx) / (dy/2) * (Concentration[index] - BC_values[indexBC - (mesh->numCellsX + 2)]);
+            }
+            else if (BC[indexBC - (mesh->numCellsX + 2)] == 2)
+            {
+                // fixed flux BC
+                Jn = (dx) * BC_values[indexBC - (mesh->numCellsX + 2)];
+            }
+
+            // South
+
+            if(BC[indexBC + (mesh->numCellsX + 2)] == 0)
+            {
+                // North no boundary
+                ds = WeightedHarmonicMean(dy/2, dy/2, DC[index], DC[index + mesh->numCellsX]);
+                Js = ds * (dx) / dy * (Concentration[index + mesh->numCellsX] - Concentration[index]);
+            }
+            else if (BC[indexBC + (mesh->numCellsX + 2)] == 1)
+            {
+                // fixed concentration BC
+                ds = DC[index];
+                Js = ds * (dx) / (dy/2) * (BC_values[indexBC + (mesh->numCellsX + 2)] - Concentration[index]);
+            }
+            else if (BC[indexBC + (mesh->numCellsX + 2)] == 2)
+            {
+                // fixed flux BC
+                Js = (dx) * BC_values[indexBC + (mesh->numCellsX + 2)];
+            }
+
+            Jx = (Je + Jw)/2;
+            Jy = (Jn + Js)/2;
+
+            fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
         }
     }
 
@@ -3209,6 +3367,11 @@ int JI2D_SOR(double *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
+        if (iterCount % iterToCheck == 0 && opts->verbose == 1)
+        {
+            printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
+        }
+
         // update d_Conc = d_ConcTemp
 
         CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
@@ -3672,8 +3835,15 @@ int SteadyStateSim2D(options *opts)
     }
 
     // Print concentration map and mass flux map
+    if(opts->printCmap)
+    {
+        printCMAP2D(opts, &mesh, Concentration);
+    }
 
-    printCMAP2D(opts, &mesh, Concentration);
+    if (opts->printFmap)
+    {
+        printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
+    }
 
     
     // Memory management

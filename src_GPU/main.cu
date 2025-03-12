@@ -43,10 +43,6 @@ int main(int argc, char **argv)
             SteadyStateSim2D(&opts);
         }
     }
-
-    
-
-    
     
     return 0;
 }
