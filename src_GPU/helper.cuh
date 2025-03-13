@@ -145,6 +145,24 @@ typedef struct
     long int nElements;
 } tauInfo;
 
+// Steady-State related output
+
+typedef struct
+{
+    double *VF;
+    double Deff;
+    double Deff_TH_Max;
+    int MeshAmpX;
+    int MeshAmpY;
+    int MeshAmpZ;
+    double Tau;
+    int numCellsX;
+    int numCellsY;
+    int numCellsZ;
+    long int nElements;
+} SSInfo;
+
+
 // Define coords for Flood Fill
 
 typedef std::tuple<int, int, int> coord;
@@ -1071,6 +1089,69 @@ int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
     // close file
     fclose(OUT);
     return 0;
+}
+
+void printOutSS2D(options* opts, SSInfo *info, meshInfo *mesh)
+{
+
+    bool headerFlag = true;
+
+    // Check if file exists
+
+    if (FILE *TEST = fopen(opts->outputFilename, "r"))
+    {
+        fclose(TEST);
+        headerFlag = false;
+    }
+
+    // Open file
+
+    FILE *OUT = fopen(opts->outputFilename, "a+");
+
+    if (headerFlag)
+    {
+        if (opts->nD == 2)
+        {
+            fprintf(OUT, "inputName,nX,nY,Iter,Conv,COM,Deff,DeffMax,Tau");
+        }
+        else if (opts->nD == 3)
+        {
+            fprintf(OUT, "inputName,nX,nY,nZ,Iter,Conv,COM,VF,eVF,Deff,DeffMax,Tau");
+        }
+        // Check how many VF's need to be printed
+        for(int i = 0; i < opts->numDC; i++)
+        {
+            fprintf(OUT, ",VF%d", i+1);
+        }
+        fprintf(OUT, "\n");
+    }
+
+    // print output from inputs
+
+    fprintf(OUT, "%s,%d,%d,", opts->inputFilename, mesh->numCellsX, mesh->numCellsY);
+
+    if (opts->nD == 3)
+        fprintf(OUT, "%d,", mesh->numCellsZ);
+
+    // print results
+    fprintf(OUT, "%ld,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e", mesh->iterCount, mesh->conv, 0.0, info->Deff, info->Deff_TH_Max, info->Tau);
+    
+    // print VF's
+
+    for(int i = 0; i < opts->numDC; i++)
+    {
+        fprintf(OUT, ",%1.3e", info->VF[i]);
+    }
+
+    fprintf(OUT,"\n");
+
+    // close file
+    fclose(OUT);
+    
+    
+
+
+    return;
 }
 
 /*
@@ -3698,6 +3779,7 @@ int SteadyStateSim2D(options *opts)
     // Initialize required data structures
 
     meshInfo mesh;
+    SSInfo printInfo;
 
     // For the 2D code, we can read the image straight up (no need for user entered info)
     char *simObject = nullptr;
@@ -3715,6 +3797,20 @@ int SteadyStateSim2D(options *opts)
     {
         return 1;
     }
+
+    // save parameters on SSInfo
+
+    printInfo.MeshAmpX = opts->MeshIncreaseX;
+    printInfo.MeshAmpY = opts->MeshIncreaseY;
+
+    printInfo.numCellsX = mesh.numCellsX;
+    printInfo.numCellsY = mesh.numCellsY;
+    printInfo.numCellsZ = 1;
+
+    printInfo.nElements = mesh.nElements;
+
+    printInfo.VF = (double *)malloc(sizeof(double) * opts->numDC);
+    memset(printInfo.VF, 0, sizeof(double) * opts->numDC);
 
     // set mesh parameters
 
@@ -3742,6 +3838,7 @@ int SteadyStateSim2D(options *opts)
     SetBC_DeffSetup2D(opts, &mesh, BC, BC_Value);
 
     // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
+    // also get VF's based on DC
 
     for (int index = 0; index < mesh.nElements; index++)
     {
@@ -3754,6 +3851,11 @@ int SteadyStateSim2D(options *opts)
         {
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
+        }
+        for(int p = 0; p < opts->numDC; p++)
+        {
+            if (DC[index] == opts->DC[p])
+                printInfo.VF[p] += (double)1.0/printInfo.nElements;
         }
     }
 
@@ -3835,6 +3937,7 @@ int SteadyStateSim2D(options *opts)
     }
 
     // Print concentration map and mass flux map
+
     if(opts->printCmap)
     {
         printCMAP2D(opts, &mesh, Concentration);
@@ -3844,6 +3947,38 @@ int SteadyStateSim2D(options *opts)
     {
         printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
     }
+
+    // If additional output is required, print
+
+    if(opts->printOut)
+    {
+        // Calculate Deff
+        double J1 = 0;
+        double J2 = 0;
+        int right = mesh.numCellsX - 1;
+        int left = 0;
+        for (int j = 0; j < mesh.numCellsY; j++)
+        {
+            J1 += DC[j * mesh.numCellsX + left] * (Concentration[j * mesh.numCellsX + left] - opts->CLeft) / (mesh.dx / 2);
+            J2 += DC[j * mesh.numCellsX + right] * (opts->CRight - Concentration[j * mesh.numCellsX + right]) / (mesh.dx / 2);
+        }
+
+        double jAvg = (J1 + J2) / (2.0 * mesh.numCellsY);
+
+        printInfo.Deff_TH_Max = 0;
+
+        for(int i = 0; i < opts->numDC; i++)
+        {
+            printInfo.Deff_TH_Max += printInfo.VF[i]*opts->DC[i];
+        }
+
+        printInfo.Deff = jAvg/(opts->CRight - opts->CLeft);
+
+        printInfo.Tau = printInfo.Deff_TH_Max/printInfo.Deff;
+
+        printOutSS2D(opts, &printInfo, &mesh);
+    }
+        
 
     
     // Memory management
