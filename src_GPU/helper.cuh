@@ -56,6 +56,8 @@ Last Update:
 #include "cuda.h"
 #include <omp.h>
 
+#define FARADAY 9.648533e4         // C / mol
+
 // CUDA CHECK ERROR
 
 #define CHECK_CUDA(func)                                               \
@@ -109,7 +111,13 @@ typedef struct
     int useGPU;              // Use GPU or not?
     int nGPU;                // number of GPUs
     int printFmap;           // dictates if flux map will be printed
-    char *FMapName;         // dictates the name of the output flux map
+    char *FMapName;          // dictates the name of the output flux map
+    int TF_Flag;             // dicates if there will be a transient simulation or not
+    double Time;             // total runtime for the transient simulation. DT is determined automatically
+    double current;          // current applied
+    int charge;              // applied charge number
+    double cd_time;          // time for the charge/discharge step
+    double relaxTime;        // time required for relaxation
 } options;
 
 // Mesh related information
@@ -123,8 +131,11 @@ typedef struct
     double dx;
     double dy;
     double dz;
+    double dt;
     long int iterCount;
     double conv;
+    double SA;
+    double SSA;
 } meshInfo;
 
 // Tortuosity related output
@@ -162,6 +173,21 @@ typedef struct
     long int nElements;
 } SSInfo;
 
+// Transient Flux output
+
+typedef struct
+{
+    double *VF;
+    double Deff;
+    int MeshAmpX;
+    int MeshAmpY;
+    int MeshAmpZ;
+    int numCellsX;
+    int numCellsY;
+    int numCellsZ;
+    long int nElements;
+    double simTime;
+} TF_Info;
 
 // Define coords for Flood Fill
 
@@ -354,6 +380,14 @@ int printOptions(options *opts)
             /*
                 Add here different time discretization requirements
             */
+            printf("Crank-Nicolson Method Selected:\n");
+            printf("Time-step: automatic.\n");
+            printf("Total Time: %1.3e\n",opts->Time);
+            printf("Current = %1.3e\n", opts->current);
+            printf("Charge: %d\n", opts->charge);
+            printf("Faraday: %1.3e\n", (double) FARADAY );
+            printf("C/D Time: %1.3e\n", opts->cd_time);
+            printf("Relax Time: %1.3e\n", opts->relaxTime);
         }
 
         // mesh amplificaiton
@@ -534,11 +568,18 @@ void readInputGeneral(char *FileName, options *opts)
 
     opts->BatchFlag = 0;
     opts->inputType = 0;
+    opts->Time = 0.0;
+    opts->current = 0;
+    opts->charge = 0;
 
     opts->nThreads = 1;
 
     opts->useGPU = 0;
     opts->nGPU = 1;
+
+    opts->SteadyStateFlag = 0;
+    opts->tauSim = 0;
+    opts->TF_Flag = 0;
 
     /*
     --------------------------------------------------------------------------------
@@ -685,14 +726,38 @@ void readInputGeneral(char *FileName, options *opts)
         {
             opts->POI_B[1] = (unsigned char)tempD;
         }
-        else if(strcmp(tempC, "printFMap:") == 0)
+        else if (strcmp(tempC, "printFMap:") == 0)
         {
-            opts->printFmap = tempD;
+            opts->printFmap = (int)tempD;
         }
-        else if(strcmp(tempC, "FMapName:") == 0)
+        else if (strcmp(tempC, "FMapName:") == 0)
         {
             sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
             strcpy(opts->FMapName, tempFilenames);
+        }
+        else if (strcmp(tempC, "TF:") == 0)
+        {
+            opts->TF_Flag = (int)tempD;
+        }
+        else if (strcmp(tempC, "Charge:") == 0)
+        {
+            opts->charge = (int)tempD;
+        }
+        else if (strcmp(tempC, "Current:") == 0)
+        {
+            opts->current = tempD;
+        }
+        else if (strcmp(tempC, "Time:") == 0)
+        {
+            opts->Time = tempD;
+        }
+        else if (strcmp(tempC, "CD_Time:") == 0)
+        {
+            opts->cd_time = tempD;
+        }
+        else if (strcmp(tempC, "Relax_Time:") == 0)
+        {
+            opts->relaxTime = tempD;
         }
 
         // Update the number of expected diffusion coefficients and thresholding for image
@@ -1091,7 +1156,7 @@ int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
     return 0;
 }
 
-void printOutSS2D(options* opts, SSInfo *info, meshInfo *mesh)
+void printOutSS2D(options *opts, SSInfo *info, meshInfo *mesh)
 {
 
     bool headerFlag = true;
@@ -1119,9 +1184,9 @@ void printOutSS2D(options* opts, SSInfo *info, meshInfo *mesh)
             fprintf(OUT, "inputName,nX,nY,nZ,Iter,Conv,COM,VF,eVF,Deff,DeffMax,Tau");
         }
         // Check how many VF's need to be printed
-        for(int i = 0; i < opts->numDC; i++)
+        for (int i = 0; i < opts->numDC; i++)
         {
-            fprintf(OUT, ",VF%d", i+1);
+            fprintf(OUT, ",VF%d", i + 1);
         }
         fprintf(OUT, "\n");
     }
@@ -1135,21 +1200,18 @@ void printOutSS2D(options* opts, SSInfo *info, meshInfo *mesh)
 
     // print results
     fprintf(OUT, "%ld,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e", mesh->iterCount, mesh->conv, 0.0, info->Deff, info->Deff_TH_Max, info->Tau);
-    
+
     // print VF's
 
-    for(int i = 0; i < opts->numDC; i++)
+    for (int i = 0; i < opts->numDC; i++)
     {
         fprintf(OUT, ",%1.3e", info->VF[i]);
     }
 
-    fprintf(OUT,"\n");
+    fprintf(OUT, "\n");
 
     // close file
     fclose(OUT);
-    
-    
-
 
     return;
 }
@@ -1218,7 +1280,6 @@ double CoM2D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
     return sum;
 }
 
-
 double CoM3D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
 {
     /*
@@ -1258,6 +1319,66 @@ double CoM3D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
     }
 
     return sum;
+}
+
+void activeSA_2D(options *opts, meshInfo *mesh, double *DC)
+{
+    /*
+        activeSA_2D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+        Outputs:
+            - None.
+        Function will calculate the surface area and specific surface area
+        between active surfaces.
+    */
+    double SA = 0;
+    double SSA;
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        if (DC[index] == 0)
+            continue;
+        int row = index/mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        // Check West
+        if (col != 0)
+        {
+            if(DC[index] != DC[index - 1] && DC[index - 1] != 0)
+                SA += 1;
+        }
+
+        // Check East
+        if (col != mesh->numCellsX - 1)
+        {
+            if(DC[index] != DC[index + 1] && DC[index + 1] != 0)
+                SA += 1;
+        }
+
+        // Check North
+        if (row != 0 )
+        {
+            if (DC[index] != DC[index - mesh->numCellsX] && DC[index - mesh->numCellsX != 0])
+                SA += 1;
+        }
+
+        // Check South
+        if (row != mesh->numCellsY - 1)
+        {
+            if (DC[index] != DC[index + mesh->numCellsX] && DC[index + mesh->numCellsX] != 0)
+                SA += 1;
+        }
+    }
+
+    // calculate SA and SSA based on the number of active faces we just counted.
+
+    mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
+    mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
+
+    return;
 }
 
 void printCMAP2D(options *opts, meshInfo *mesh, double *Concentration)
@@ -1331,7 +1452,7 @@ void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double
     {
         for (int col = 0; col < mesh->numCellsX; col++)
         {
-            
+
             int index = row * mesh->numCellsX + col;
             long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
             Jx = 0;
@@ -1355,82 +1476,83 @@ void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double
             if (BC[indexBC - 1] == 0)
             {
                 // no west boundary
-                dw = WeightedHarmonicMean(dx/2, dx/2, DC[index], DC[index - 1]);
-                Jw = dw * (dy)/dx * (Concentration[index] - Concentration[index - 1]);
-            } 
-            else if(BC[indexBC - 1] == 1)
+                dw = WeightedHarmonicMean(dx / 2, dx / 2, DC[index], DC[index - 1]);
+                Jw = dw * (dy) / dx * (Concentration[index] - Concentration[index - 1]);
+            }
+            else if (BC[indexBC - 1] == 1)
             {
                 // fixed concentration BC
                 dw = DC[index];
-                Jw = dw * (dy)/(dx/2) * (Concentration[index] - BC_values[indexBC - 1]);
-            } else if (BC[indexBC - 1] == 2)
+                Jw = dw * (dy) / (dx / 2) * (Concentration[index] - BC_values[indexBC - 1]);
+            }
+            else if (BC[indexBC - 1] == 2)
             {
                 // fixed flux BC
-                Jw = (dy) * BC_values[indexBC - 1];
+                Jw = (dy)*BC_values[indexBC - 1];
             }
-            
+
             // East
 
-            if(BC[indexBC + 1] == 0)
+            if (BC[indexBC + 1] == 0)
             {
                 // East no boundary
-                de = WeightedHarmonicMean(dx/2, dx/2, DC[index + 1], DC[index + 1]);
-                Je = de * (dy)/dx * (Concentration[index + 1] - Concentration[index]);
+                de = WeightedHarmonicMean(dx / 2, dx / 2, DC[index + 1], DC[index + 1]);
+                Je = de * (dy) / dx * (Concentration[index + 1] - Concentration[index]);
             }
-            else if(BC[indexBC + 1] == 1)
+            else if (BC[indexBC + 1] == 1)
             {
                 // fixed concentration BC
                 de = DC[index];
-                Je = de * (dy)/(dx/2) * (BC_values[indexBC + 1] - Concentration[index]);
+                Je = de * (dy) / (dx / 2) * (BC_values[indexBC + 1] - Concentration[index]);
             }
-            else if(BC[indexBC + 1] == 2)
+            else if (BC[indexBC + 1] == 2)
             {
                 // fixed flux BC
-                Je = (dy) * BC_values[indexBC + 1];
+                Je = (dy)*BC_values[indexBC + 1];
             }
 
             // North
 
-            if(BC[indexBC - (mesh->numCellsX + 2)] == 0)
+            if (BC[indexBC - (mesh->numCellsX + 2)] == 0)
             {
                 // North no boundary
-                dn = WeightedHarmonicMean(dy/2, dy/2, DC[index], DC[index - mesh->numCellsX]);
+                dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[index], DC[index - mesh->numCellsX]);
                 Jn = dn * (dx) / dy * (Concentration[index] - Concentration[index - mesh->numCellsX]);
             }
             else if (BC[indexBC - (mesh->numCellsX + 2)] == 1)
             {
                 // fixed concentration BC
                 dn = DC[index];
-                Jn = dn * (dx) / (dy/2) * (Concentration[index] - BC_values[indexBC - (mesh->numCellsX + 2)]);
+                Jn = dn * (dx) / (dy / 2) * (Concentration[index] - BC_values[indexBC - (mesh->numCellsX + 2)]);
             }
             else if (BC[indexBC - (mesh->numCellsX + 2)] == 2)
             {
                 // fixed flux BC
-                Jn = (dx) * BC_values[indexBC - (mesh->numCellsX + 2)];
+                Jn = (dx)*BC_values[indexBC - (mesh->numCellsX + 2)];
             }
 
             // South
 
-            if(BC[indexBC + (mesh->numCellsX + 2)] == 0)
+            if (BC[indexBC + (mesh->numCellsX + 2)] == 0)
             {
                 // North no boundary
-                ds = WeightedHarmonicMean(dy/2, dy/2, DC[index], DC[index + mesh->numCellsX]);
+                ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[index], DC[index + mesh->numCellsX]);
                 Js = ds * (dx) / dy * (Concentration[index + mesh->numCellsX] - Concentration[index]);
             }
             else if (BC[indexBC + (mesh->numCellsX + 2)] == 1)
             {
                 // fixed concentration BC
                 ds = DC[index];
-                Js = ds * (dx) / (dy/2) * (BC_values[indexBC + (mesh->numCellsX + 2)] - Concentration[index]);
+                Js = ds * (dx) / (dy / 2) * (BC_values[indexBC + (mesh->numCellsX + 2)] - Concentration[index]);
             }
             else if (BC[indexBC + (mesh->numCellsX + 2)] == 2)
             {
                 // fixed flux BC
-                Js = (dx) * BC_values[indexBC + (mesh->numCellsX + 2)];
+                Js = (dx)*BC_values[indexBC + (mesh->numCellsX + 2)];
             }
 
-            Jx = (Je + Jw)/2;
-            Jy = (Jn + Js)/2;
+            Jx = (Je + Jw) / 2;
+            Jy = (Jn + Js) / 2;
 
             fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
         }
@@ -1624,6 +1746,68 @@ int SetBC_DeffSetup2D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
         // left side
         BC[i * nCols + left] = 1; // Dirichlet
         BC_Value[i * nCols + left] = opts->CLeft;
+    }
+
+    // set Neumann boundaries
+
+    for (int j = 0; j < nCols; j++)
+    {
+        // top
+        BC[top * nCols + j] = 2;
+
+        // bottom
+        BC[bottom * nCols + j] = 2;
+    }
+
+    return 0;
+}
+
+int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
+{
+    /*
+        Function SetBC_TranientFluxSetup:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to BC classification array
+            - pointer to BC_value array (value of BC for Neumann or Dirichlet)
+            - pointer to DC array
+        Output:
+            - None
+
+        The function will classify the entire BC array with no flux BCs. On one side, there will be a flux
+        applied, only when the current is on.
+    */
+
+    // Set some variables to help
+    int nCols, nRows;
+    nCols = mesh->numCellsX + 2;
+    nRows = mesh->numCellsY + 2;
+    // On the BC array, we need to classify all boundaries as Neumann with flux = 0.
+    // On the left, if t < t_cutoff and DC[i] != 0, then flux = dy/(dx) I/(SZF)
+
+    double flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
+    
+    int right, left, top, bottom;
+    // set col values for right and left
+    left = 0;
+    right = nCols - 1;
+
+    // set row values for top and bottom
+    top = 0;
+    bottom = nRows - 1;
+
+    // right and left boundaries (Neumann)
+
+    for (int i = 0; i < nRows; i++)
+    {
+        // right side
+        BC[i * nCols + right] = 2; // Neumann
+        BC_Value[i * nCols + right] = 0;
+
+        // left side
+        BC[i * nCols + left] = 2; // Neumann
+        BC_Value[i * nCols + left] = flux;
     }
 
     // set Neumann boundaries
@@ -3793,7 +3977,8 @@ int SteadyStateSim2D(options *opts)
     {
         printf("Error Reading File! Return Code 1\n");
         return 1;
-    } else if(readFlag)
+    }
+    else if (readFlag)
     {
         return 1;
     }
@@ -3852,10 +4037,10 @@ int SteadyStateSim2D(options *opts)
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
         }
-        for(int p = 0; p < opts->numDC; p++)
+        for (int p = 0; p < opts->numDC; p++)
         {
             if (DC[index] == opts->DC[p])
-                printInfo.VF[p] += (double)1.0/printInfo.nElements;
+                printInfo.VF[p] += (double)1.0 / printInfo.nElements;
         }
     }
 
@@ -3938,7 +4123,7 @@ int SteadyStateSim2D(options *opts)
 
     // Print concentration map and mass flux map
 
-    if(opts->printCmap)
+    if (opts->printCmap)
     {
         printCMAP2D(opts, &mesh, Concentration);
     }
@@ -3950,7 +4135,7 @@ int SteadyStateSim2D(options *opts)
 
     // If additional output is required, print
 
-    if(opts->printOut)
+    if (opts->printOut)
     {
         // Calculate Deff
         double J1 = 0;
@@ -3967,20 +4152,18 @@ int SteadyStateSim2D(options *opts)
 
         printInfo.Deff_TH_Max = 0;
 
-        for(int i = 0; i < opts->numDC; i++)
+        for (int i = 0; i < opts->numDC; i++)
         {
-            printInfo.Deff_TH_Max += printInfo.VF[i]*opts->DC[i];
+            printInfo.Deff_TH_Max += printInfo.VF[i] * opts->DC[i];
         }
 
-        printInfo.Deff = jAvg/(opts->CRight - opts->CLeft);
+        printInfo.Deff = jAvg / (opts->CRight - opts->CLeft);
 
-        printInfo.Tau = printInfo.Deff_TH_Max/printInfo.Deff;
+        printInfo.Tau = printInfo.Deff_TH_Max / printInfo.Deff;
 
         printOutSS2D(opts, &printInfo, &mesh);
     }
-        
 
-    
     // Memory management
 
     free(RHS);
@@ -4593,6 +4776,134 @@ int Tau3D_Sim(options *opts)
 
     free(simObject);
 
+    return 0;
+}
+
+int TransientFluxSim2D(options *opts)
+{
+    /*
+        TransientFluxSim2D:
+        Inputs:
+            - pointer to struct opts
+        Outputs:
+            - none.
+
+        Function will run a transient (2D + 1D) simulation based on user input.
+    */
+
+    // declare necessary strucs
+
+    meshInfo mesh;
+    TF_Info printInfo;
+
+    // For the 2D code, we can read the image straight up (no need for user entered info)
+    char *simObject = nullptr;
+    int readFlag = 0;
+
+    readFlag = readImg2D(opts, &mesh, simObject);
+
+    // return an error if the image wasn't read properly
+
+    if (readFlag == 1 && opts->verbose)
+    {
+        printf("Error Reading File! Return Code 1\n");
+        return 1;
+    }
+    else if (readFlag)
+    {
+        return 1;
+    }
+
+    // save parameters on SSInfo
+
+    printInfo.MeshAmpX = opts->MeshIncreaseX;
+    printInfo.MeshAmpY = opts->MeshIncreaseY;
+
+    printInfo.numCellsX = mesh.numCellsX;
+    printInfo.numCellsY = mesh.numCellsY;
+    printInfo.numCellsZ = 1;
+
+    printInfo.nElements = mesh.nElements;
+
+    printInfo.VF = (double *)malloc(sizeof(double) * opts->numDC);
+    memset(printInfo.VF, 0, sizeof(double) * opts->numDC);
+
+    // set mesh parameters
+
+    mesh.dx = (double)1.0 / mesh.numCellsX;
+    mesh.dy = (double)1.0 / mesh.numCellsY;
+
+    // Create arrays for BC's and DC's
+
+    double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
+    int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    // initialize arrays
+
+    memset(DC, 0, sizeof(double) * mesh.nElements);
+    memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    // Populate the array with the diffusion coefficients
+
+    SetDC2D(opts, &mesh, DC, simObject);
+
+    // Set Boundary Conditions
+
+    // SetBC_DeffSetup2D(opts, &mesh, BC, BC_Value);
+    SetBC_TransientFluxSetup(opts, &mesh, BC, BC_Value);
+
+    // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
+    // also get VF's based on DC
+
+    for (int index = 0; index < mesh.nElements; index++)
+    {
+        int row = index / (mesh.numCellsX);
+        int col = index - row * mesh.numCellsX;
+
+        int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
+
+        if (DC[index] < 1e-15)
+        {
+            DC[index] = 0;
+            BC[indexBC] = 2; // set Neumann BC with zero flux
+        }
+        for (int p = 0; p < opts->numDC; p++)
+        {
+            if (DC[index] == opts->DC[p])
+                printInfo.VF[p] += (double)1.0 / printInfo.nElements;
+        }
+    }
+
+    // If any phase is impermeable, need to find all non-participating media
+
+    // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
+
+    // Allocate arrays for holding discretized equations
+
+    double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
+    double *RHS = (double *)malloc(mesh.nElements * sizeof(double));
+    double *Concentration = (double *)malloc(mesh.nElements * sizeof(double));
+
+    double *C0 = (double *)malloc(sizeof(double) * mesh.nElements);
+
+    // initialize the memory
+
+    memset(CoeffMatrix, 0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS, 0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0, mesh.nElements * sizeof(double));
+    memset(C0, 0, sizeof(double) * mesh.nElements);
+
+
+    // Memory management
+    free(CoeffMatrix);
+    free(RHS);
+    free(Concentration);
+    free(C0);
+    free(BC);
+    free(BC_Value);
+    free(DC);
     return 0;
 }
 

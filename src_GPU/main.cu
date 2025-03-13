@@ -43,6 +43,14 @@ int main(int argc, char **argv)
             SteadyStateSim2D(&opts);
         }
     }
-    
+
+    if (opts.TF_Flag)
+    {
+        if (opts.verbose)
+            printOptions(&opts);
+        if (opts.nD == 2)
+            TransientFluxSim2D(&opts);
+    }
+
     return 0;
 }
