@@ -132,6 +132,7 @@ typedef struct
     double dy;
     double dz;
     double dt;
+    double currentTime;
     long int iterCount;
     double conv;
     double SA;
@@ -1785,9 +1786,16 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
     nRows = mesh->numCellsY + 2;
     // On the BC array, we need to classify all boundaries as Neumann with flux = 0.
     // On the left, if t < t_cutoff and DC[i] != 0, then flux = dy/(dx) I/(SZF)
+    double flux;
 
-    double flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
-    
+    if (mesh->currentTime < opts->cd_time)
+    {
+        flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
+    } else
+    {
+        flux = 0;
+    }
+
     int right, left, top, bottom;
     // set col values for right and left
     left = 0;
@@ -3415,6 +3423,184 @@ int DiscSS3D_Simple(options *opts,
     return 0;
 }
 
+int DiscTrans2D(options     *opts,
+                meshInfo    *mesh,
+                double      *BC,
+                double      *BC_Value,
+                double      *DC,
+                double      *CoeffMatrix,
+                double      *RHS,
+                double      *C0)
+{
+    /*
+        Function DiscTrans2D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to BC (types)
+            - pointer to BC (values)
+            - pointer to DC
+            - pointer to Coefficient Matrix
+            - pointer to RHS
+            - pointer to concentration dist. at last time-step
+        Outputs:
+            - None.
+        
+        Function will create a (2 + 1) discretization of the given system based on
+        central differencing for the space dependent component and Crank-Nicolson
+        method for implicit time stepping. 
+    */
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+
+    int row, col;
+    long int BC_index;
+    double dw, de, ds, dn;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // get the equivalent index for BC's
+        BC_index = (row + 1) * (nCols + 2) + (col + 1);
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i * 5 + k] = 0;
+        }
+
+        if (BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // 1*phi = 0;
+            CoeffMatrix[i * 5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Contribution from previous time-step
+
+        
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // West
+
+        if (BC[BC_index - 1] == 0)
+        {
+            // west is not a boundary, proceed normally
+            dw = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i - 1]);
+            CoeffMatrix[i * 5 + 1] = dw * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] -= dw * (dy) / dx;
+        }
+        else if (BC[BC_index - 1] == 1)
+        {
+            // west is fixed concentration boundary
+            dw = DC[i];
+            CoeffMatrix[i * 5 + 0] -= dw * (dy) / (dx / 2);
+            RHS[i] -= BC_Value[BC_index - 1] * dw * (dy) / (dx / 2);
+        }
+        else if (BC[BC_index - 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index - 1] * (dy);
+        } // other BC's not implemented yet
+
+        // East
+
+        if (BC[BC_index + 1] == 0)
+        {
+            // east is not a boundary, proceed normally
+            de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
+            CoeffMatrix[i * 5 + 2] = de * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] -= de * (dy) / dx;
+        }
+        else if (BC[BC_index + 1] == 1)
+        {
+            // west if fixed concentration
+            de = DC[i];
+            CoeffMatrix[i * 5 + 0] -= de * (dy) / (dx / 2);
+            RHS[i] -= BC_Value[BC_index + 1] * de * (dy) / (dx / 2);
+        }
+        else if (BC[BC_index + 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] -= BC_Value[BC_index + 1] * (dy);
+        }
+
+        // South
+
+        if (BC[BC_index + (nCols + 2)] == 0)
+        {
+            // south is not a boundary
+            ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
+            CoeffMatrix[i * 5 + 3] = ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] -= ds * (dx) / dy;
+        }
+        else if (BC[BC_index + (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            ds = DC[i];
+            CoeffMatrix[i * 5 + 0] -= ds * (dx) / (dy / 2);
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)] * ds * (dx) / (dy / 2);
+        }
+        else if (BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)] * (dx);
+        }
+
+        // North
+
+        if (BC[BC_index - (nCols + 2)] == 0)
+        {
+            // north is not a boundary
+            dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
+            CoeffMatrix[i * 5 + 4] = dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] -= dn * (dx) / dy;
+        }
+        else if (BC[BC_index - (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            dn = DC[i];
+            CoeffMatrix[i * 5 + 0] -= dn * (dx) / (dy / 2);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)] * dn * (dx) / (dy / 2);
+        }
+        else if (BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)] * (dx);
+        }
+
+        // end
+    }
+
+    return 0;
+}
+
 /*
 
     GPU Space Management:
@@ -4825,6 +5011,8 @@ int TransientFluxSim2D(options *opts)
 
     printInfo.nElements = mesh.nElements;
 
+    mesh.currentTime = 0.0;
+
     printInfo.VF = (double *)malloc(sizeof(double) * opts->numDC);
     memset(printInfo.VF, 0, sizeof(double) * opts->numDC);
 
@@ -4849,37 +5037,6 @@ int TransientFluxSim2D(options *opts)
 
     SetDC2D(opts, &mesh, DC, simObject);
 
-    // Set Boundary Conditions
-
-    // SetBC_DeffSetup2D(opts, &mesh, BC, BC_Value);
-    SetBC_TransientFluxSetup(opts, &mesh, BC, BC_Value);
-
-    // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
-    // also get VF's based on DC
-
-    for (int index = 0; index < mesh.nElements; index++)
-    {
-        int row = index / (mesh.numCellsX);
-        int col = index - row * mesh.numCellsX;
-
-        int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
-
-        if (DC[index] < 1e-15)
-        {
-            DC[index] = 0;
-            BC[indexBC] = 2; // set Neumann BC with zero flux
-        }
-        for (int p = 0; p < opts->numDC; p++)
-        {
-            if (DC[index] == opts->DC[p])
-                printInfo.VF[p] += (double)1.0 / printInfo.nElements;
-        }
-    }
-
-    // If any phase is impermeable, need to find all non-participating media
-
-    // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
-
     // Allocate arrays for holding discretized equations
 
     double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
@@ -4893,7 +5050,62 @@ int TransientFluxSim2D(options *opts)
     memset(CoeffMatrix, 0, mesh.nElements * sizeof(double) * 5);
     memset(RHS, 0, mesh.nElements * sizeof(double));
     memset(Concentration, 0, mesh.nElements * sizeof(double));
-    memset(C0, 0, sizeof(double) * mesh.nElements);
+    memset(C0, 0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
+
+    // If any phase is impermeable, need to find all non-participating media
+
+    // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
+
+    bool BC_Switch = true;
+
+    // Main time-stepping loop
+
+    while(mesh.currentTime < opts->Time)
+    {
+        if(BC_Switch)
+        {
+            // Set Boundary Conditions
+            SetBC_TransientFluxSetup(opts, &mesh, BC, BC_Value);
+            // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
+
+            for (int index = 0; index < mesh.nElements; index++)
+            {
+                int row = index / (mesh.numCellsX);
+                int col = index - row * mesh.numCellsX;
+
+                int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
+
+                if (DC[index] < 1e-15)
+                {
+                    DC[index] = 0;
+                    BC[indexBC] = 2; // set Neumann BC with zero flux
+                }
+                for (int p = 0; p < opts->numDC; p++)
+                {
+                    if (DC[index] == opts->DC[p])
+                        printInfo.VF[p] += (double)1.0 / printInfo.nElements;
+                }
+            }
+        }
+
+        if(BC_Switch)
+        {
+            // New discretization needed
+            // DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS)
+            DiscSS2D_Simple(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS);
+        } else
+        {
+            // coefficient matrix is still good, just update the RHS
+        }
+
+        // update time
+
+        mesh.currentTime += mesh.dt;
+
+        // Copy new concentration into C0
+
+        memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
+    }
 
 
     // Memory management
