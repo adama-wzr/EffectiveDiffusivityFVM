@@ -1790,7 +1790,8 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
 
     if (mesh->currentTime < opts->cd_time)
     {
-        flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
+        flux = 0;
     } else
     {
         flux = 0;
@@ -5081,8 +5082,11 @@ int TransientFluxSim2D(options *opts)
 
     for(int i = 0; i < mesh.nElements; i++)
     {
-        C0[i] = 1;
-        Concentration[i] = 1;
+        if(DC[i] != 0)
+        {
+            C0[i] = 1;
+            Concentration[i] = 1;
+        }
     }
 
     // If any phase is impermeable, need to find all non-participating media
@@ -5125,10 +5129,31 @@ int TransientFluxSim2D(options *opts)
         {
             // New discretization needed
             DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+            BC_Switch = false;
         // } else
         // {
         //     // coefficient matrix is still good, just update the RHS
         }
+
+        FILE *TEST = fopen("coeffMatrix.csv", "w+");
+
+        fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
+
+        for(int i = 0; i < mesh.nElements; i++)
+        {
+            int row = i / mesh.numCellsX;
+            int col = i - row * mesh.numCellsX;
+
+            fprintf(TEST, "%d,%d,", col, row);
+            for(int j = 0; j < 5; j++)
+            {
+                fprintf(TEST, "%lf,",CoeffMatrix[i*5 + j]);
+            }
+            fprintf(TEST, "%lf,%lf\n", C0[i], RHS[i]);
+            if(C0[i] > 1.0) printf("NaN found at x = %d, y = %d\n", col, row);
+        }
+
+        fclose(TEST);
 
         // Solve
 
@@ -5187,6 +5212,7 @@ int TransientFluxSim2D(options *opts)
         // Copy new concentration into C0
 
         memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
+        break;
     }
 
 
