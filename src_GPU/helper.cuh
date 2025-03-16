@@ -3854,7 +3854,7 @@ int JI2D_SOR(double *Coeff,
 
     if (opts->verbose)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
     }
 
     // store info to print
@@ -3979,7 +3979,7 @@ int JI3D_SOR(double *Coeff,
 
     if (opts->verbose)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
     }
 
     // store info to print
@@ -4052,7 +4052,7 @@ int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
 
     if (opts->verbose)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
     }
 
     // store info to print
