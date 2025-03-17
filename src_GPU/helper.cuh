@@ -5125,6 +5125,11 @@ int TransientFluxSim2D(options *opts)
             }
         }
 
+        for(int p = 0; p < opts->numDC; p++)
+        {
+            printf("Phase = %d, VF = %1.3e, DC = %1.3e\n", p, printInfo.VF[p], opts->DC[p]);
+        }
+
         if(BC_Switch)
         {
             // New discretization needed
@@ -5214,6 +5219,11 @@ int TransientFluxSim2D(options *opts)
         memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
         break;
     }
+
+    // print fmap and cmap
+
+    printCMAP2D(opts, &mesh, Concentration);
+    printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
 
 
     // Memory management
