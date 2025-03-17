@@ -3,8 +3,8 @@ nD: 2
 inputType: 2
 numDC: 3
 D1: 0
-D2: 1
-D3: 1e-3
+D2: 3e-10
+D3: 1e-13
 D_TH1: 30
 D_TH2: 170
 D_TH3: 255
@@ -26,8 +26,8 @@ Verbose: 1
 useGPU: 1
 nGPU: 1
 TF: 1
-Time: 10
-Current: 1.3
+Time: 30
+Current: 6e-5
 Charge: 1
 SS: 0
 CD_Time: 1.5

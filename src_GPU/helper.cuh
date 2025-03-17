@@ -1376,6 +1376,8 @@ void activeSA_2D(options *opts, meshInfo *mesh, double *DC)
 
     // calculate SA and SSA based on the number of active faces we just counted.
 
+    printf("SA = %1.3e\n", SA);
+
     mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
     mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
 
@@ -1790,12 +1792,14 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
 
     if (mesh->currentTime < opts->cd_time)
     {
-        // flux = mesh->dy * opts->current/(mesh->SA * opts->charge * FARADAY);
-        flux = 0;
+        flux = opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = 0;
     } else
     {
         flux = 0;
     }
+
+    printf("SA: %1.3e, Flux = %1.3e\n", mesh->SA, flux);
 
     int right, left, top, bottom;
     // set col values for right and left
@@ -3529,7 +3533,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index - 1] == 2)
         {
             // Flux boundary (Neumann)
-            RHS[i] -= BC_Value[BC_index - 1] * (dy);
+            RHS[i] += BC_Value[BC_index - 1] * (dy);
         } // other BC's not implemented yet
 
         // East
@@ -3577,7 +3581,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index + (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] -= BC_Value[BC_index + (nCols + 2)] * (dx);
+            RHS[i] += BC_Value[BC_index + (nCols + 2)] * (dx);
         }
 
         // North
@@ -3777,7 +3781,7 @@ int JI2D_SOR(double *Coeff,
     int numBlocks = mesh->nElements / threads_per_block + 1;
 
     double pctChange = 1;
-    int iterToCheck = 1000;
+    int iterToCheck = 100;
 
     // copy arrays into GPU
 
@@ -3852,10 +3856,10 @@ int JI2D_SOR(double *Coeff,
 
     // print success
 
-    if (opts->verbose)
-    {
-        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
-    }
+    // if (opts->verbose)
+    // {
+    //     printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
+    // }
 
     // store info to print
 
@@ -5032,8 +5036,8 @@ int TransientFluxSim2D(options *opts)
 
     // set mesh parameters
 
-    mesh.dx = (double)1.0 / mesh.numCellsX;
-    mesh.dy = (double)1.0 / mesh.numCellsY;
+    mesh.dx = (double)55.24*1e-6 / mesh.numCellsX;
+    mesh.dy = (double)48.33*1e-6 / mesh.numCellsY;
 
     // Automatically find dt
 
@@ -5065,6 +5069,12 @@ int TransientFluxSim2D(options *opts)
 
     SetDC2D(opts, &mesh, DC, simObject);
 
+    // Find surface area
+
+    activeSA_2D(opts, &mesh, DC);
+
+    // mesh.SA = mesh.SA*(5.4e-8)*(5.4e-8);
+
     // Allocate arrays for holding discretized equations
 
     double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
@@ -5075,17 +5085,17 @@ int TransientFluxSim2D(options *opts)
 
     // initialize the memory
 
-    memset(CoeffMatrix, 0, mesh.nElements * sizeof(double) * 5);
-    memset(RHS, 0, mesh.nElements * sizeof(double));
-    memset(Concentration, 0, mesh.nElements * sizeof(double));
-    memset(C0, 0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
+    memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS, 0.0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0.0, mesh.nElements * sizeof(double));
+    memset(C0, 0.0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
 
     for(int i = 0; i < mesh.nElements; i++)
     {
         if(DC[i] != 0)
         {
-            C0[i] = 1;
-            Concentration[i] = 1;
+            C0[i] = 0.0;
+            Concentration[i] = 0.0;
         }
     }
 
@@ -5094,6 +5104,10 @@ int TransientFluxSim2D(options *opts)
     // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
 
     bool BC_Switch = true;
+
+    double checkTime = 0;
+
+    double interval = 10;
 
     // Main time-stepping loop
 
@@ -5112,7 +5126,7 @@ int TransientFluxSim2D(options *opts)
 
                 int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
 
-                if (DC[index] < 1e-15)
+                if (DC[index] == 0)
                 {
                     DC[index] = 0;
                     BC[indexBC] = 2; // set Neumann BC with zero flux
@@ -5130,10 +5144,40 @@ int TransientFluxSim2D(options *opts)
             // New discretization needed
             DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
             BC_Switch = false;
-        // } else
-        // {
-        //     // coefficient matrix is still good, just update the RHS
+        } else
+        {
+            // coefficient matrix is still good, just update the RHS
+            DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
         }
+
+        FILE *TEST = fopen("coeffMatrix.csv", "w+");
+
+        fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
+
+        for (int i = 0; i < mesh.nElements; i++)
+
+        {
+
+            int row = i / mesh.numCellsX;
+
+            int col = i - row * mesh.numCellsX;
+
+            fprintf(TEST, "%d,%d,", col, row);
+
+            for (int j = 0; j < 5; j++)
+
+            {
+
+                fprintf(TEST, "%lf,", CoeffMatrix[i * 5 + j]);
+            }
+
+            fprintf(TEST, "%lf,%lf\n", C0[i], RHS[i]);
+
+            if (C0[i] > 1.0)
+                printf("NaN found at x = %d, y = %d\n", col, row);
+        }
+
+        fclose(TEST);
 
         // Solve
 
@@ -5187,7 +5231,13 @@ int TransientFluxSim2D(options *opts)
 
         mesh.currentTime += mesh.dt;
 
-        printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
+        if(mesh.currentTime  > checkTime)
+        {
+            printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
+            checkTime += interval;
+        }
+
+        
 
         // Copy new concentration into C0
 
