@@ -3447,7 +3447,7 @@ int DiscTrans2D(options     *opts,
         Outputs:
             - None.
         
-        Function will create a (2 + 1) discretization of the given system based on
+        Function will create a 2D + 1D discretization of the given system based on
         central differencing for the space dependent component and Crank-Nicolson
         method for implicit time stepping. 
     */
@@ -3507,7 +3507,6 @@ int DiscTrans2D(options     *opts,
         // Contribution from last time step
 
         RHS[i] += 2.0/dt * C0[i];
-        CoeffMatrix[i * 5 + 0] += 2.0/dt;
 
         // West
 
@@ -3608,6 +3607,7 @@ int DiscTrans2D(options     *opts,
         // P Contribution from previous time-step
 
         RHS[i] += -CoeffMatrix[i * 5 + 0] * C0[i];
+        CoeffMatrix[i * 5 + 0] += 2.0/dt;
 
         // end
     }
@@ -3832,10 +3832,10 @@ int JI2D_SOR(double *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
-        if (iterCount % iterToCheck == 0 && opts->verbose == 1)
-        {
-            printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
-        }
+        // if (iterCount % iterToCheck == 0 && opts->verbose == 1)
+        // {
+        //     printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
+        // }
 
         // update d_Conc = d_ConcTemp
 
@@ -5097,7 +5097,7 @@ int TransientFluxSim2D(options *opts)
 
     // Main time-stepping loop
 
-    while(mesh.currentTime < 2*mesh.dt)
+    while(mesh.currentTime < opts->Time)
     {
         if(BC_Switch)
         {
@@ -5125,11 +5125,6 @@ int TransientFluxSim2D(options *opts)
             }
         }
 
-        for(int p = 0; p < opts->numDC; p++)
-        {
-            printf("Phase = %d, VF = %1.3e, DC = %1.3e\n", p, printInfo.VF[p], opts->DC[p]);
-        }
-
         if(BC_Switch)
         {
             // New discretization needed
@@ -5139,26 +5134,6 @@ int TransientFluxSim2D(options *opts)
         // {
         //     // coefficient matrix is still good, just update the RHS
         }
-
-        FILE *TEST = fopen("coeffMatrix.csv", "w+");
-
-        fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
-
-        for(int i = 0; i < mesh.nElements; i++)
-        {
-            int row = i / mesh.numCellsX;
-            int col = i - row * mesh.numCellsX;
-
-            fprintf(TEST, "%d,%d,", col, row);
-            for(int j = 0; j < 5; j++)
-            {
-                fprintf(TEST, "%lf,",CoeffMatrix[i*5 + j]);
-            }
-            fprintf(TEST, "%lf,%lf\n", C0[i], RHS[i]);
-            if(C0[i] > 1.0) printf("NaN found at x = %d, y = %d\n", col, row);
-        }
-
-        fclose(TEST);
 
         // Solve
 
@@ -5217,7 +5192,7 @@ int TransientFluxSim2D(options *opts)
         // Copy new concentration into C0
 
         memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
-        break;
+        // break;
     }
 
     // print fmap and cmap
