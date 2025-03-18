@@ -1792,7 +1792,8 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
 
     if (mesh->currentTime < opts->cd_time)
     {
-        flux = opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
+        flux = 0.1 * mesh->dt;      // 0.1 mol/m^2 s
         // flux = 0;
     } else
     {
@@ -3518,10 +3519,10 @@ int DiscTrans2D(options     *opts,
         {
             // west is not a boundary, proceed normally
             dw = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i - 1]);
-            CoeffMatrix[i * 5 + 1] = dw * (dy) / dx;
-            CoeffMatrix[i * 5 + 0] -= dw * (dy) / dx;
+            CoeffMatrix[i * 5 + 1] = -dw * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += dw * (dy) / dx;
             // contribution from the last time-step
-            RHS[i] += CoeffMatrix[i * 5 + 1] * C0[i - 1];
+            RHS[i] -= CoeffMatrix[i * 5 + 1] * C0[i - 1];
         }
         else if (BC[BC_index - 1] == 1)
         {
@@ -3533,7 +3534,8 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index - 1] == 2)
         {
             // Flux boundary (Neumann)
-            RHS[i] += BC_Value[BC_index - 1] * (dy);
+            // RHS[i] += BC_Value[BC_index - 1] * (dy);
+            RHS[i] += BC_Value[BC_index - 1];
         } // other BC's not implemented yet
 
         // East
@@ -3542,10 +3544,10 @@ int DiscTrans2D(options     *opts,
         {
             // east is not a boundary, proceed normally
             de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
-            CoeffMatrix[i * 5 + 2] = de * (dy) / dx;
-            CoeffMatrix[i * 5 + 0] -= de * (dy) / dx;
+            CoeffMatrix[i * 5 + 2] = -de * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += de * (dy) / dx;
             // Contribution from the last time-step
-            RHS[i] += CoeffMatrix[i * 5 + 2] * C0[i + 1];
+            RHS[i] -= CoeffMatrix[i * 5 + 2] * C0[i + 1];
         }
         else if (BC[BC_index + 1] == 1)
         {
@@ -3566,10 +3568,10 @@ int DiscTrans2D(options     *opts,
         {
             // south is not a boundary
             ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
-            CoeffMatrix[i * 5 + 3] = ds * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] -= ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 3] = -ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += ds * (dx) / dy;
             // Contribution from last time-step
-            RHS[i] += CoeffMatrix[i * 5 + 3] * C0[i + nCols];
+            RHS[i] -= CoeffMatrix[i * 5 + 3] * C0[i + nCols];
         }
         else if (BC[BC_index + (nCols + 2)] == 1)
         {
@@ -3590,10 +3592,10 @@ int DiscTrans2D(options     *opts,
         {
             // north is not a boundary
             dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
-            CoeffMatrix[i * 5 + 4] = dn * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] -= dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 4] = -dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += dn * (dx) / dy;
             // Contribution from the last time-step
-            RHS[i] += CoeffMatrix[i * 5 + 4] * C0[i - nCols];
+            RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[i - nCols];
         }
         else if (BC[BC_index - (nCols + 2)] == 1)
         {
@@ -5036,8 +5038,8 @@ int TransientFluxSim2D(options *opts)
 
     // set mesh parameters
 
-    mesh.dx = (double)55.24*1e-6 / mesh.numCellsX;
-    mesh.dy = (double)48.33*1e-6 / mesh.numCellsY;
+    mesh.dx = (double)50*1e-6 / mesh.numCellsX;
+    mesh.dy = (double)50*1e-6 / mesh.numCellsY;
 
     // Automatically find dt
 
@@ -5150,35 +5152,6 @@ int TransientFluxSim2D(options *opts)
             DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
         }
 
-        FILE *TEST = fopen("coeffMatrix.csv", "w+");
-
-        fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
-
-        for (int i = 0; i < mesh.nElements; i++)
-
-        {
-
-            int row = i / mesh.numCellsX;
-
-            int col = i - row * mesh.numCellsX;
-
-            fprintf(TEST, "%d,%d,", col, row);
-
-            for (int j = 0; j < 5; j++)
-
-            {
-
-                fprintf(TEST, "%lf,", CoeffMatrix[i * 5 + j]);
-            }
-
-            fprintf(TEST, "%lf,%lf\n", C0[i], RHS[i]);
-
-            if (C0[i] > 1.0)
-                printf("NaN found at x = %d, y = %d\n", col, row);
-        }
-
-        fclose(TEST);
-
         // Solve
 
         if (opts->useGPU == 0)
@@ -5237,13 +5210,37 @@ int TransientFluxSim2D(options *opts)
             checkTime += interval;
         }
 
-        
-
         // Copy new concentration into C0
 
         memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
         // break;
     }
+
+    FILE *TEST = fopen("coeffMatrix.csv", "w+");
+
+    fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
+
+    for (int i = 0; i < mesh.nElements; i++)
+
+    {
+
+        int row = i / mesh.numCellsX;
+
+        int col = i - row * mesh.numCellsX;
+
+        fprintf(TEST, "%d,%d,", col, row);
+
+        for (int j = 0; j < 5; j++)
+
+        {
+
+            fprintf(TEST, "%1.3e,", CoeffMatrix[i * 5 + j]);
+        }
+
+        fprintf(TEST, "%1.3e,%1.3e\n", C0[i], RHS[i]);
+    }
+
+    fclose(TEST);
 
     // print fmap and cmap
 
