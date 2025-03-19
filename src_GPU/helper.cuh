@@ -1793,7 +1793,7 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
     if (mesh->currentTime < opts->cd_time)
     {
         // flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
-        flux = 0.1 * mesh->dt;      // 0.1 mol/m^2 s
+        flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
         // flux = 0;
     } else
     {
@@ -3511,7 +3511,7 @@ int DiscTrans2D(options     *opts,
 
         // Contribution from last time step
 
-        RHS[i] += 2.0/dt * C0[i];
+        RHS[i] += 2.0 * (dx * dy)/dt * C0[i];
 
         // West
 
@@ -3522,11 +3522,14 @@ int DiscTrans2D(options     *opts,
             CoeffMatrix[i * 5 + 1] = -dw * (dy) / dx;
             CoeffMatrix[i * 5 + 0] += dw * (dy) / dx;
             // contribution from the last time-step
-            RHS[i] -= CoeffMatrix[i * 5 + 1] * C0[i - 1];
+            RHS[i] += -CoeffMatrix[i * 5 + 1] * C0[i - 1];
         }
         else if (BC[BC_index - 1] == 1)
         {
             // west is fixed concentration boundary
+            /*
+                This is not accurate for transient simulation
+            */
             dw = DC[i];
             CoeffMatrix[i * 5 + 0] -= dw * (dy) / (dx / 2);
             RHS[i] -= BC_Value[BC_index - 1] * dw * (dy) / (dx / 2);    // Probably need to change this for transient
@@ -3535,7 +3538,7 @@ int DiscTrans2D(options     *opts,
         {
             // Flux boundary (Neumann)
             // RHS[i] += BC_Value[BC_index - 1] * (dy);
-            RHS[i] += BC_Value[BC_index - 1];
+            RHS[i] += dx * dy * BC_Value[BC_index - 1];
         } // other BC's not implemented yet
 
         // East
@@ -3544,14 +3547,17 @@ int DiscTrans2D(options     *opts,
         {
             // east is not a boundary, proceed normally
             de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
-            CoeffMatrix[i * 5 + 2] = -de * (dy) / dx;
-            CoeffMatrix[i * 5 + 0] += de * (dy) / dx;
+            CoeffMatrix[i * 5 + 2] = -de * dt * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += de * dt * (dy) / dx;
             // Contribution from the last time-step
-            RHS[i] -= CoeffMatrix[i * 5 + 2] * C0[i + 1];
+            RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
         }
         else if (BC[BC_index + 1] == 1)
         {
-            // west if fixed concentration
+            // east if fixed concentration
+            /*
+                This is not accurate for transient simulation
+            */
             de = DC[i];
             CoeffMatrix[i * 5 + 0] -= de * (dy) / (dx / 2);
             RHS[i] -= BC_Value[BC_index + 1] * de * (dy) / (dx / 2);
@@ -3559,7 +3565,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index + 1] == 2)
         {
             // Flux boundary (Neumann)
-            RHS[i] -= BC_Value[BC_index + 1] * (dy);
+            RHS[i] += BC_Value[BC_index + 1] * (dy);
         }
 
         // South
@@ -3568,14 +3574,17 @@ int DiscTrans2D(options     *opts,
         {
             // south is not a boundary
             ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
-            CoeffMatrix[i * 5 + 3] = -ds * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 3] = -ds * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += ds * dt * (dx) / dy;
             // Contribution from last time-step
-            RHS[i] -= CoeffMatrix[i * 5 + 3] * C0[i + nCols];
+            RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
         }
         else if (BC[BC_index + (nCols + 2)] == 1)
         {
             // Concentration BC (Dirichlet)
+            /*
+                This is not accurate for transient simulation
+            */
             ds = DC[i];
             CoeffMatrix[i * 5 + 0] -= ds * (dx) / (dy / 2);
             RHS[i] -= BC_Value[BC_index + (nCols + 2)] * ds * (dx) / (dy / 2);
@@ -3583,7 +3592,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index + (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] += BC_Value[BC_index + (nCols + 2)] * (dx);
+            RHS[i] += dt * BC_Value[BC_index + (nCols + 2)] * (dx);
         }
 
         // North
@@ -3592,10 +3601,10 @@ int DiscTrans2D(options     *opts,
         {
             // north is not a boundary
             dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
-            CoeffMatrix[i * 5 + 4] = -dn * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 4] = -dn * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += dn * dt * (dx) / dy;
             // Contribution from the last time-step
-            RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[i - nCols];
+            RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
         }
         else if (BC[BC_index - (nCols + 2)] == 1)
         {
@@ -3607,13 +3616,13 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index - (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] -= BC_Value[BC_index - (nCols + 2)] * (dx);
+            RHS[i] -= dt * BC_Value[BC_index - (nCols + 2)] * (dx);
         }
 
         // P Contribution from previous time-step
 
         RHS[i] += -CoeffMatrix[i * 5 + 0] * C0[i];
-        CoeffMatrix[i * 5 + 0] += 2.0/dt;
+        CoeffMatrix[i * 5 + 0] += 2.0 * dx * dy/dt;
 
         // end
     }
@@ -5041,7 +5050,7 @@ int TransientFluxSim2D(options *opts)
     mesh.dx = (double)50*1e-6 / mesh.numCellsX;
     mesh.dy = (double)50*1e-6 / mesh.numCellsY;
 
-    // Automatically find dt
+    // Automatically find dt (it's not minDC, its maxDC). Fix is needed here
 
     double minDC = 1e9;
 
@@ -5053,7 +5062,7 @@ int TransientFluxSim2D(options *opts)
             minDC = opts->DC[i];
     }
 
-    mesh.dt = mesh.dx*mesh.dx/minDC;
+    mesh.dt = 0.95 * mesh.dx*mesh.dx/minDC;
 
     // Create arrays for BC's and DC's
 
@@ -5106,6 +5115,8 @@ int TransientFluxSim2D(options *opts)
     // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
 
     bool BC_Switch = true;
+
+    bool onFlag = true;
 
     double checkTime = 0;
 
@@ -5213,7 +5224,13 @@ int TransientFluxSim2D(options *opts)
         // Copy new concentration into C0
 
         memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
-        // break;
+        
+        // if time > switch time, then switch BCs
+        if(mesh.currentTime > opts->cd_time && onFlag == true)
+        {
+            BC_Switch = true;
+            onFlag = false;
+        }
     }
 
     FILE *TEST = fopen("coeffMatrix.csv", "w+");
