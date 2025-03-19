@@ -1792,8 +1792,8 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
 
     if (mesh->currentTime < opts->cd_time)
     {
-        // flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
-        flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
+        flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
         // flux = 0;
     } else
     {
@@ -5047,22 +5047,22 @@ int TransientFluxSim2D(options *opts)
 
     // set mesh parameters
 
-    mesh.dx = (double)50*1e-6 / mesh.numCellsX;
-    mesh.dy = (double)50*1e-6 / mesh.numCellsY;
+    mesh.dx = (double)54.0 * 1e-9;
+    mesh.dy = (double)54.0 * 1e-9;
 
-    // Automatically find dt (it's not minDC, its maxDC). Fix is needed here
+    // Automatically find dt
 
-    double minDC = 1e9;
+    double maxDC = 0;
 
-    for (int i = 0; i < opts->numDC; i++)
+    for(int i = 0; i <  opts->numDC; i++)
     {
-        if (i == 0 && opts->DC[i] != 0)
-            minDC = opts->DC[i];
-        else if (opts->DC[i] != 0 && opts->DC[i] < minDC)
-            minDC = opts->DC[i];
+        if(i == 0 && opts->DC[i] != 0)
+            maxDC = opts->DC[i];
+        else if( opts->DC[i] != 0 && opts->DC[i] > maxDC)
+            maxDC = opts->DC[i];
     }
 
-    mesh.dt = 0.95 * mesh.dx*mesh.dx/minDC;
+    mesh.dt = 0.95 * mesh.dx*mesh.dx/maxDC;
 
     // Create arrays for BC's and DC's
 
@@ -5120,7 +5120,7 @@ int TransientFluxSim2D(options *opts)
 
     double checkTime = 0;
 
-    double interval = 10;
+    double interval = 1;
 
     // Main time-stepping loop
 
