@@ -3726,8 +3726,8 @@ int DiscTrans2D(options     *opts,
         {
             // east is not a boundary, proceed normally
             de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
-            CoeffMatrix[i * 5 + 2] = -de * dt * (dy) / dx;
-            CoeffMatrix[i * 5 + 0] += de * dt * (dy) / dx;
+            CoeffMatrix[i * 5 + 2] = -de * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += de * (dy) / dx;
             // Contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
         }
@@ -3753,8 +3753,8 @@ int DiscTrans2D(options     *opts,
         {
             // south is not a boundary
             ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
-            CoeffMatrix[i * 5 + 3] = -ds * dt * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += ds * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 3] = -ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += ds * (dx) / dy;
             // Contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
         }
@@ -3780,8 +3780,8 @@ int DiscTrans2D(options     *opts,
         {
             // north is not a boundary
             dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
-            CoeffMatrix[i * 5 + 4] = -dn * dt * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += dn * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 4] = -dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += dn * (dx) / dy;
             // Contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
         }
@@ -5530,7 +5530,7 @@ int TransientFluxSim2D(options *opts)
     }
 
     // print fmap and cmap
-    printCoeff2D(CoeffMatrix, RHS, Concentration, &mesh);
+    // printCoeff2D(CoeffMatrix, RHS, Concentration, &mesh);
     printCMAP2D(opts, &mesh, Concentration);
     printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
 
