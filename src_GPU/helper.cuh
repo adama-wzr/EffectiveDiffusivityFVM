@@ -3847,11 +3847,6 @@ int JI2D_SOR(double *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
-        // if (iterCount % iterToCheck == 0 && opts->verbose == 1)
-        // {
-        //     printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
-        // }
-
         // update d_Conc = d_ConcTemp
 
         CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
@@ -3865,17 +3860,14 @@ int JI2D_SOR(double *Coeff,
     CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
                           sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
 
-    // print success
-
-    // if (opts->verbose)
-    // {
-    //     printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
-    // }
-
     // store info to print
 
     mesh->conv = pctChange;
     mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
 
     return 0;
 }
