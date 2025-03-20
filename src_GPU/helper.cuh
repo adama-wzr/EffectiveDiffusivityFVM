@@ -1100,6 +1100,43 @@ int readImg2D(options *opts, meshInfo *mesh, char *&simObject)
 
 */
 
+int printCoeff2D(double *Coeff, double *RHS, double *Conc, meshInfo *mesh)
+{
+    /*
+        Inputs:
+            - Pointer to coefficient matrix
+            - Pointer to RHS vector
+            - Pointer to Concentration vector
+            - Pointer to mesh struct
+        Outputs:
+            - None.
+        
+        Function will print the coefficient matrx to a file. This is not a very robust function,
+        but it is mainly used for debugging, so it's fine. The file name is just hardcoded inside.
+    
+    */
+
+    FILE *COEFF = fopen("Coeff2D.csv", "w+");
+    fprintf(COEFF, "x,y,ap,aw,ae,as,an,RHS,C\n");
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        int row = i / mesh->numCellsX;
+        int col = i - row * mesh->numCellsX;
+
+        fprintf(COEFF, "%d,%d,%1.3e,", col, row, Coeff[i*5 + 0]);
+        for(int j = 1; j < 5; j++)
+        {
+            fprintf(COEFF, "%1.3e,", Coeff[i * 5 + j]);
+        }
+
+        fprintf(COEFF, "%1.3e, %1.3e\n", RHS[i], Conc[i]);
+    }
+
+    fclose(COEFF);
+
+    return 0;
+}
+
 int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
 {
     /*
@@ -1792,8 +1829,8 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
 
     if (mesh->currentTime < opts->cd_time)
     {
-        // flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
-        flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
+        flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
         // flux = 0;
     } else
     {
@@ -3429,6 +3466,148 @@ int DiscSS3D_Simple(options *opts,
     return 0;
 }
 
+
+int RHS_Update2D(meshInfo   *mesh,
+                int         *BC,
+                double      *BC_Value,
+                double      *CoeffMatrix,
+                double      *RHS,
+                double      *C0)
+{
+
+    /*
+        Function RHS_Update2D:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to BC types array
+            - pointer to BC_Values array
+            - pointer to CoeffMatrix array
+            - pointer to RHS array
+            - pointer to concentration values array from previous time step
+        Outputs:
+            - None.
+        
+        Function will update the RHS matrix according to the values from previous time-step.
+        Unless there is an update to BCs, then the Coeff Matrix does not see any changes.
+    */
+
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+    int row, col;
+    long int BC_index;
+    double ap;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // get the equivalent index for BC's
+        BC_index = (row + 1) * (nCols + 2) + (col + 1);
+
+        if (BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // update not needed
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // Reset RHS
+        RHS[i] = 0;
+        ap = 0;
+
+        // Contribution from last time step
+
+        RHS[i] += 2.0 * (dx * dy)/dt * C0[i];
+
+        // get a_p = sum(a_nb)
+
+        for(int j = 1; j < 5; j++)
+        {
+            ap += -CoeffMatrix[i * 5 + j];
+        }
+
+        // Check all directions for BCs
+
+        // West
+
+        if (BC[BC_index - 1] == 0)
+        {
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 1] * C0[i - 1];
+        } else if (BC[BC_index - 1] == 2)
+        {
+            RHS[i] += dx * dy * BC_Value[BC_index - 1];
+        }
+
+        // East
+
+        if (BC[BC_index + 1] == 0)
+        {
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
+        } else if (BC[BC_index + 1] == 2)
+        {
+            RHS[i] += dx * dy * BC_Value[BC_index + 1];
+        }
+
+        // South
+
+        if (BC[BC_index + (nCols + 2)] == 0)
+        {
+            // Contribution from last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
+        }
+        else if (BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] += dx * dy * BC_Value[BC_index + (nCols + 2)];
+        }
+
+        // North
+
+        if (BC[BC_index - (nCols + 2)] == 0)
+        {
+            // Contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
+        }
+        else if (BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] += dx * dy * BC_Value[BC_index - (nCols + 2)];
+        }
+
+        // last contribution is ap
+
+        RHS[i] += -ap * C0[i];
+    }
+
+    return 0;
+}
+
+
 int DiscTrans2D(options     *opts,
                 meshInfo    *mesh,
                 int         *BC,
@@ -3547,8 +3726,8 @@ int DiscTrans2D(options     *opts,
         {
             // east is not a boundary, proceed normally
             de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
-            CoeffMatrix[i * 5 + 2] = -de * dt * (dy) / dx;
-            CoeffMatrix[i * 5 + 0] += de * dt * (dy) / dx;
+            CoeffMatrix[i * 5 + 2] = -de * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += de * (dy) / dx;
             // Contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
         }
@@ -3574,8 +3753,8 @@ int DiscTrans2D(options     *opts,
         {
             // south is not a boundary
             ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
-            CoeffMatrix[i * 5 + 3] = -ds * dt * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += ds * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 3] = -ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += ds * (dx) / dy;
             // Contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
         }
@@ -3601,8 +3780,8 @@ int DiscTrans2D(options     *opts,
         {
             // north is not a boundary
             dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
-            CoeffMatrix[i * 5 + 4] = -dn * dt * (dx) / dy;
-            CoeffMatrix[i * 5 + 0] += dn * dt * (dx) / dy;
+            CoeffMatrix[i * 5 + 4] = -dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += dn * (dx) / dy;
             // Contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
         }
@@ -3757,15 +3936,15 @@ int unInitGPU_SOR(double **d_Coeff,
 
 */
 
-int JI2D_SOR(double *Coeff,
-             double *RHS,
-             double *Concentration,
-             double *d_Coeff,
-             double *d_RHS,
-             double *d_Conc,
-             double *d_ConcTemp,
-             options *opts,
-             meshInfo *mesh)
+int JI2D_SOR(double     *Coeff,
+             double     *RHS,
+             double     *Concentration,
+             double     *d_Coeff,
+             double     *d_RHS,
+             double     *d_Conc,
+             double     *d_ConcTemp,
+             options    *opts,
+             meshInfo   *mesh)
 {
     /*
         Function JI2D_SOR:
@@ -3847,10 +4026,111 @@ int JI2D_SOR(double *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
-        // if (iterCount % iterToCheck == 0 && opts->verbose == 1)
-        // {
-        //     printf("Iter %ld, pct Change = %lf\n", iterCount, pctChange);
-        // }
+        // update d_Conc = d_ConcTemp
+
+        CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
+
+        // increment
+        iterCount++;
+    }
+
+    // copy the solution
+
+    CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
+                          sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
+
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
+
+    return 0;
+}
+
+int JI2D_TransientUpdate(
+             double     *RHS,
+             double     *Concentration,
+             double     *d_Coeff,
+             double     *d_RHS,
+             double     *d_Conc,
+             double     *d_ConcTemp,
+             options    *opts,
+             meshInfo   *mesh)
+{
+    /*
+        Function JI2D_SOR:
+        Inputs:
+            - pointer to RHS matrix array
+            - pointer to Concentration distribution array
+            - pointer to device coefficient matrix
+            - pointer to device right-hand side array
+            - pointer to device concentration array
+            - pointer to device temporary concentration array storage
+            - pointer to options struct
+            - pointer to mesh struct
+        Outputs:
+            - None
+
+        This function will manage the host-device interactions for the Jacobi Iteration method
+        in 2D, with a standard over-relaxation applied. The function will manage data transfers,
+        convergence criteria, and kernel coordination. The difference between this one and JI2D_SOR
+        is that this one has less memory transfers, as a lot of the information is already in the GPU.
+    */
+
+    long int iterCount = 0;
+    int threads_per_block = 128;
+    int numBlocks = mesh->nElements / threads_per_block + 1;
+
+    double pctChange = 1;
+    int iterToCheck = 100;
+
+    // Update RHS on GPU 
+
+    CHECK_CUDA(cudaMemcpy(d_RHS, RHS,
+                          sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice));
+
+    // Create Array to store temp Conc
+
+    double *TempConc = (double *)malloc(sizeof(double) * mesh->nElements);
+
+    memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+
+    // start the main loop
+
+    while (iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
+    {
+        // call kernel
+
+        JI_SOR2D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+                                                          mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        // check convergence
+
+        if (iterCount % iterToCheck == 0 && iterCount != 0)
+        {
+            // copy array from device to host
+            CHECK_CUDA(cudaMemcpy(Concentration, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
+
+            // compare
+            double sum = 0;
+            long int count = 0;
+
+            for (int i = 0; i < mesh->nElements; i++)
+            {
+                if (Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - TempConc[i]) / Concentration[i]);
+                    count++;
+                }
+            }
+            // calculate the change
+            pctChange = sum / count;
+            // copy memory to temp conc
+            memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+        }
 
         // update d_Conc = d_ConcTemp
 
@@ -3865,17 +4145,14 @@ int JI2D_SOR(double *Coeff,
     CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
                           sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
 
-    // print success
-
-    // if (opts->verbose)
-    // {
-    //     printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
-    // }
-
     // store info to print
 
     mesh->conv = pctChange;
     mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
 
     return 0;
 }
@@ -5047,22 +5324,24 @@ int TransientFluxSim2D(options *opts)
 
     // set mesh parameters
 
-    mesh.dx = (double)50*1e-6 / mesh.numCellsX;
-    mesh.dy = (double)50*1e-6 / mesh.numCellsY;
+    mesh.dx = (double)54.0 * 1e-9;
+    mesh.dy = (double)54.0 * 1e-9;
 
-    // Automatically find dt (it's not minDC, its maxDC). Fix is needed here
+    // Automatically find dt
 
-    double minDC = 1e9;
+    double maxDC = 0;
 
-    for (int i = 0; i < opts->numDC; i++)
+    for(int i = 0; i <  opts->numDC; i++)
     {
-        if (i == 0 && opts->DC[i] != 0)
-            minDC = opts->DC[i];
-        else if (opts->DC[i] != 0 && opts->DC[i] < minDC)
-            minDC = opts->DC[i];
+        if(i == 0 && opts->DC[i] != 0)
+            maxDC = opts->DC[i];
+        else if( opts->DC[i] != 0 && opts->DC[i] > maxDC)
+            maxDC = opts->DC[i];
     }
 
-    mesh.dt = 0.95 * mesh.dx*mesh.dx/minDC;
+    // maxDC = 1.0e-13;
+
+    mesh.dt = 0.95 * mesh.dx*mesh.dx/maxDC;
 
     // Create arrays for BC's and DC's
 
@@ -5110,9 +5389,8 @@ int TransientFluxSim2D(options *opts)
         }
     }
 
-    // If any phase is impermeable, need to find all non-participating media
 
-    // FloodFill2D_DeffSetup(&mesh, BC, DC); not needed for transient?
+    // variables needed during main loop
 
     bool BC_Switch = true;
 
@@ -5120,7 +5398,39 @@ int TransientFluxSim2D(options *opts)
 
     double checkTime = 0;
 
-    double interval = 10;
+    double interval = 0.1;
+
+    // Declare needed arrays
+
+    double *d_Coeff = NULL;
+    double *d_RHS = NULL;
+    double *d_Conc = NULL;
+    double *d_ConcTemp = NULL;
+
+    // Now we confirm that there is a match in GPUs available and user expectations
+
+    if(opts->useGPU)
+    {
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+
+        // Initialize the GPU arrays
+
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+    }
+    
 
     // Main time-stepping loop
 
@@ -5156,59 +5466,36 @@ int TransientFluxSim2D(options *opts)
         {
             // New discretization needed
             DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
-            BC_Switch = false;
         } else
         {
             // coefficient matrix is still good, just update the RHS
-            DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+            RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
         }
 
         // Solve
 
         if (opts->useGPU == 0)
         {
+            // CPU Solve
             omp_set_num_threads(opts->nThreads);
 
             GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+            BC_Switch = false;
         }
         else
         {
-            // Now we confirm that there is a match in GPUs available and user expectations
-
-            int nDevices;
-            cudaGetDeviceCount(&nDevices);
-
-            if (nDevices < 1)
+            // GPU Solve
+            if (BC_Switch)
             {
-                printf("No CUDA-capable GPU Detected! Exiting...\n");
-                return 1;
+                JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                         d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+                BC_Switch = false;
             }
-            else if (nDevices < opts->nGPU)
+            else
             {
-                printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
-                printf("Proceeding with %d GPUs\n", nDevices);
-                opts->nGPU = nDevices;
+                JI2D_TransientUpdate(RHS, Concentration, d_Coeff,
+                                     d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
             }
-
-            // Declare needed arrays
-
-            double *d_Coeff = NULL;
-            double *d_RHS = NULL;
-            double *d_Conc = NULL;
-            double *d_ConcTemp = NULL;
-
-            // Initialize the GPU arrays
-
-            initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
-
-            // // Solve
-
-            JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
-                    d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
-
-            // // Free GPU memory
-
-            unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
         }
 
         // update time
@@ -5218,6 +5505,9 @@ int TransientFluxSim2D(options *opts)
         if(mesh.currentTime  > checkTime)
         {
             printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
+            // print maps
+            // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
+            // printCMAP2D(opts, &mesh, Concentration);
             checkTime += interval;
         }
 
@@ -5233,34 +5523,14 @@ int TransientFluxSim2D(options *opts)
         }
     }
 
-    FILE *TEST = fopen("coeffMatrix.csv", "w+");
-
-    fprintf(TEST, "x,y,A1,A2,A3,A4,A5,C,RHS\n");
-
-    for (int i = 0; i < mesh.nElements; i++)
-
+    // if using GPU, free GPU memory
+    if(opts->useGPU)
     {
-
-        int row = i / mesh.numCellsX;
-
-        int col = i - row * mesh.numCellsX;
-
-        fprintf(TEST, "%d,%d,", col, row);
-
-        for (int j = 0; j < 5; j++)
-
-        {
-
-            fprintf(TEST, "%1.3e,", CoeffMatrix[i * 5 + j]);
-        }
-
-        fprintf(TEST, "%1.3e,%1.3e\n", C0[i], RHS[i]);
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
 
-    fclose(TEST);
-
     // print fmap and cmap
-
+    // printCoeff2D(CoeffMatrix, RHS, Concentration, &mesh);
     printCMAP2D(opts, &mesh, Concentration);
     printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
 
