@@ -55,6 +55,7 @@ Last Update:
 #include "cuda_runtime.h"
 #include "cuda.h"
 #include <omp.h>
+#include <filesystem>
 
 #define FARADAY 9.648533e4         // C / mol
 
@@ -1456,6 +1457,67 @@ void printCMAP2D(options *opts, meshInfo *mesh, double *Concentration)
     }
 
     fclose(OUT);
+    return;
+}
+
+void printCMAP2D_Transient(options *opts, meshInfo *mesh, double *Concentration, int nMap)
+{
+
+    /*
+        printCMAP2D_Transient:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+            - int nMap, number of CMAP
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file. These files
+        will all be put in the same output folder.
+    */
+
+    // folder and file names
+    char foldername[100];
+    char filename[100];
+
+    sprintf(foldername, "OutputCMaps");
+    sprintf(filename, "CMAP_%05d.csv", nMap);
+
+    // check if folder exists
+    if(!std::filesystem::is_directory(foldername) || !std::filesystem::exists(foldername))
+    {
+        // create folder
+        std::filesystem::create_directory(foldername);
+    }
+
+    std::filesystem::path dir (foldername);
+    std::filesystem::path file (filename);
+    std::filesystem::path full_path = dir / file;
+
+    // open file and save cmap
+
+    FILE *OUT;
+
+    OUT = fopen(full_path.generic_string().c_str(), "w");
+
+    fprintf(OUT, "x,y,C\n");
+    for (int i = 0; i < mesh->numCellsY; i++)
+    {
+        for (int j = 0; j < mesh->numCellsX; j++)
+        {
+            if (Concentration[i * mesh->numCellsX + j] != Concentration[i * mesh->numCellsX + j])
+            {
+                Concentration[i * mesh->numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j, i);
+            }
+
+            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh->numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+
     return;
 }
 
@@ -5341,7 +5403,7 @@ int TransientFluxSim2D(options *opts)
 
     // maxDC = 1.0e-13;
 
-    mesh.dt = 0.95 * mesh.dx*mesh.dx/maxDC;
+    mesh.dt = 10 * 0.95 * mesh.dx*mesh.dx/maxDC;
 
     // Create arrays for BC's and DC's
 
@@ -5398,7 +5460,9 @@ int TransientFluxSim2D(options *opts)
 
     double checkTime = 0;
 
-    double interval = 0.1;
+    double interval = 1;
+
+    int nImg = 0;
 
     // Declare needed arrays
 
@@ -5508,6 +5572,8 @@ int TransientFluxSim2D(options *opts)
             // print maps
             // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
             // printCMAP2D(opts, &mesh, Concentration);
+            printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            nImg++;
             checkTime += interval;
         }
 
