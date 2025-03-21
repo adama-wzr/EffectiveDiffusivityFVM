@@ -855,7 +855,7 @@ int readInputCMap2D(options *opts, meshInfo *mesh, double *Concentration)
         index = y[i] * width + x[i];
         Concentration[index] = C[i];
     }
-    
+
     // memory management
 
     free(x);
@@ -5547,14 +5547,23 @@ int TransientFluxSim2D(options *opts)
 
     bool onFlag = true;
 
-    double checkTime = opts->StartTime;
+    double checkTime;
 
-    double interval = 1;
+    double interval = 5;
 
     int nImg = 0;
 
-    mesh.currentTime = opts->StartTime;
-
+    if(opts->StartMapFlag)
+    {
+        mesh.currentTime = opts->StartTime;
+        checkTime = opts->StartTime;
+    }
+    else
+    {
+        mesh.currentTime = 0;
+        checkTime = 0;
+    }
+        
     // Declare needed arrays
 
     double *d_Coeff = NULL;
@@ -5661,9 +5670,9 @@ int TransientFluxSim2D(options *opts)
         {
             printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
             // print maps
-            // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
+            sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
             // printCMAP2D(opts, &mesh, Concentration);
-            // printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
             nImg++;
             checkTime += interval;
         }
