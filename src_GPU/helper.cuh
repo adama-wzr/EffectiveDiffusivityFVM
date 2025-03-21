@@ -119,6 +119,9 @@ typedef struct
     int charge;              // applied charge number
     double cd_time;          // time for the charge/discharge step
     double relaxTime;        // time required for relaxation
+    double StartTime;        // starting time for the simulation
+    int StartMapFlag;        // use CMAP as input?
+    char *StartMapName;      // input CMAP name
 } options;
 
 // Mesh related information
@@ -553,6 +556,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->outputFilename = (char *)malloc(1000 * sizeof(char));
     opts->CMapName = (char *)malloc(1000 * sizeof(char));
     opts->FMapName = (char *)malloc(1000 * sizeof(char));
+    opts->StartMapName = (char *)malloc(1000 * sizeof(char));
 
     // variables for reading diffusion coefficients (DC) and the thresholds (DC_TH)
 
@@ -573,6 +577,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->Time = 0.0;
     opts->current = 0;
     opts->charge = 0;
+    opts->StartTime = 0;
 
     opts->nThreads = 1;
 
@@ -582,6 +587,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->SteadyStateFlag = 0;
     opts->tauSim = 0;
     opts->TF_Flag = 0;
+    opts->StartMapFlag = 0;
 
     /*
     --------------------------------------------------------------------------------
@@ -761,6 +767,19 @@ void readInputGeneral(char *FileName, options *opts)
         {
             opts->relaxTime = tempD;
         }
+        else if (strcmp(tempC, "StartTime:") == 0)
+        {
+            opts->StartTime = tempD;
+        }
+        else if (strcmp(tempC, "StartFlag:") == 0)
+        {
+            opts->StartMapFlag = (int)tempD;
+        }
+        else if (strcmp(tempC, "InitCmap:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(opts->StartMapName, tempFilenames);
+        }
 
         // Update the number of expected diffusion coefficients and thresholding for image
         // processing
@@ -771,6 +790,79 @@ void readInputGeneral(char *FileName, options *opts)
             sprintf(tempDC_TH, "D_TH%d:", DC_TH_read);
     }
     return;
+}
+
+int readInputCMap2D(options *opts, meshInfo *mesh, double *Concentration)
+{
+    /*
+        Function readInputCMap2D:
+        Inputs:
+            - pointer to user opts struct
+            - pointer to mesh struct
+            - pointer to Concentration array (empty)
+        Outputs:
+            - None
+        
+        The function populates the Concentration array with the CMAP
+        that is input from the user.
+    */
+
+    // parameters for reading
+    int width;
+    width = mesh->numCellsX;
+
+    // declare needed arrays to read the image
+
+    int *x = (int *)malloc(mesh->nElements*sizeof(int));
+    int *y = (int *)malloc(mesh->nElements*sizeof(int));
+    double* C = (double *)malloc(mesh->nElements*sizeof(double));
+
+    // Make sure they are all zeroes
+
+    memset(x, 0, mesh->nElements * sizeof(int));
+    memset(y, 0, mesh->nElements * sizeof(int));
+    memset(C, 0.0, mesh->nElements * sizeof(double));
+
+    // Read file
+
+    FILE *target_data;
+
+    target_data = fopen(opts->StartMapName, "r");
+
+    // check if file exists
+
+    if (target_data == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[20];
+
+    fscanf(target_data, "%c,%c,%c", &header[0], &header[1], &header[2]);
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%d,%d,%lf", &x[count], &y[count], &C[count]) == 3)
+    {
+        count++;
+    }
+
+    long int index = 0;
+
+    for(long int i = 0; i < count; i++)
+    {
+        index = y[i] * width + x[i];
+        Concentration[index] = C[i];
+    }
+    
+    // memory management
+
+    free(x);
+    free(y);
+    free(C);
+
+    return 0;
 }
 
 int readCSV3D(options *opts, char *simObject)
@@ -1374,7 +1466,6 @@ void activeSA_2D(options *opts, meshInfo *mesh, double *DC)
         between active surfaces.
     */
     double SA = 0;
-    double SSA;
 
     for (long int index = 0; index < mesh->nElements; index++)
     {
@@ -1653,8 +1744,8 @@ void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double
                 Js = (dx)*BC_values[indexBC + (mesh->numCellsX + 2)];
             }
 
-            Jx = (Je + Jw) / 2;
-            Jy = (Jn + Js) / 2;
+            Jx = (Je + Jw) / 2.0;
+            Jy = (Jn + Js) / 2.0;
 
             fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
         }
@@ -5442,15 +5533,13 @@ int TransientFluxSim2D(options *opts)
     memset(Concentration, 0.0, mesh.nElements * sizeof(double));
     memset(C0, 0.0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
 
-    for(int i = 0; i < mesh.nElements; i++)
-    {
-        if(DC[i] != 0)
-        {
-            C0[i] = 0.0;
-            Concentration[i] = 0.0;
-        }
-    }
+    // Start the CMaps, otherwise they are already initialized to 0
 
+    if(opts->StartMapFlag == 1)
+    {
+        readInputCMap2D(opts, &mesh, C0);
+        memcpy(Concentration, C0, sizeof(double) * mesh.nElements);
+    }
 
     // variables needed during main loop
 
@@ -5458,11 +5547,13 @@ int TransientFluxSim2D(options *opts)
 
     bool onFlag = true;
 
-    double checkTime = 0;
+    double checkTime = opts->StartTime;
 
     double interval = 1;
 
     int nImg = 0;
+
+    mesh.currentTime = opts->StartTime;
 
     // Declare needed arrays
 
@@ -5572,7 +5663,7 @@ int TransientFluxSim2D(options *opts)
             // print maps
             // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
             // printCMAP2D(opts, &mesh, Concentration);
-            printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            // printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
             nImg++;
             checkTime += interval;
         }
