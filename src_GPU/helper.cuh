@@ -855,7 +855,7 @@ int readInputCMap2D(options *opts, meshInfo *mesh, double *Concentration)
         index = y[i] * width + x[i];
         Concentration[index] = C[i];
     }
-    
+
     // memory management
 
     free(x);
@@ -2149,7 +2149,7 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 
     for (int row = 0; row < mesh->numCellsY; row++)
     {
-        // set right
+        // set left
         if (Domain[row * mesh->numCellsX + left] == -1)
         {
             Domain[row * mesh->numCellsX + left] = 0;
@@ -2276,6 +2276,175 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
     return 0;
 }
 
+int FloodFill2D_RightSideStart(meshInfo *mesh, int *BC, double *DC)
+{
+    /*
+        FloodFill2D_RightSideStart function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to array with BC's
+            - pointer to array with DC's
+        Outputs:
+            - None
+
+        The function will search the domain, and will set all DC values that are too
+        low to a Neumann BC with zero flux. Non-participating media will also be flagged
+        accordingly. This function starts from the right boundary.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        int row = index / mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+        if (DC[index] == 0)
+        {
+            Domain[index] = 0;
+            BC[indexBC] = 2;
+        }
+        else
+        {
+            Domain[index] = -1;
+        }
+    }
+
+    // Find permeable boundaries, add to open list
+
+    std::set<coordPair> cList;
+
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        // set right
+        if (Domain[row * mesh->numCellsX + right] == -1)
+        {
+            Domain[row * mesh->numCellsX + right] = 0;
+            cList.insert(std::pair(right, row));
+        }
+    }
+
+    // Search full domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // read coordinates
+
+        int col = pop.first;
+        int row = pop.second;
+
+        /*
+            We need to check North, South, East, and West for more fluid:
+
+            North = col + 0, row - 1
+            South = col + 0, row + 1
+            East  = col + 1, row + 0
+            West  = col - 1, row + 0
+
+            Note that diagonals are not considered a connection.
+            This code assumes no periodic boundary conditions (currently).
+        */
+        int tempRow, tempCol;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+
+        if (row > 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // South
+
+        tempCol = col;
+
+        if (row < mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+
+        if (col > 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // East
+
+        tempRow = row;
+
+        if (col < mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // end while
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    for (int index = 0; index < mesh->nElements; index++)
+    {
+        // Skip participating media
+        if (Domain[index] != -1)
+            continue;
+
+        int row = index / mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+
+        // Set BC of non-participating media
+
+        BC[indexBC] = -1;
+    }
+
+    // memory management
+    free(Domain);
+
+    return 0;
+}
+
 int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
     /*
@@ -2322,7 +2491,7 @@ int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 
     for (int row = 0; row < mesh->numCellsY; row++)
     {
-        // set right
+        // set left
         if (Domain[row * mesh->numCellsX + left] == -1)
         {
             Domain[row * mesh->numCellsX + left] = 0;
@@ -5541,20 +5710,33 @@ int TransientFluxSim2D(options *opts)
         memcpy(Concentration, C0, sizeof(double) * mesh.nElements);
     }
 
+    // Flood-Fill From Left Boundary only
+
+    FloodFill2D_RightSideStart(&mesh, BC, DC);
+
     // variables needed during main loop
 
     bool BC_Switch = true;
 
     bool onFlag = true;
 
-    double checkTime = opts->StartTime;
+    double checkTime;
 
-    double interval = 1;
+    double interval = 10;
 
-    int nImg = 0;
+    int nImg = 90;
 
-    mesh.currentTime = opts->StartTime;
-
+    if(opts->StartMapFlag)
+    {
+        mesh.currentTime = opts->StartTime;
+        checkTime = opts->StartTime;
+    }
+    else
+    {
+        mesh.currentTime = 0;
+        checkTime = 0;
+    }
+        
     // Declare needed arrays
 
     double *d_Coeff = NULL;
@@ -5661,9 +5843,9 @@ int TransientFluxSim2D(options *opts)
         {
             printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
             // print maps
-            // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
+            sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
             // printCMAP2D(opts, &mesh, Concentration);
-            // printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
             nImg++;
             checkTime += interval;
         }
