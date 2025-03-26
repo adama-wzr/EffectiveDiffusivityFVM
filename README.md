@@ -22,7 +22,8 @@ This list reflects what we tested on and can confirm that runs properly, but old
 - CUDA >= 11.5
 - gcc >= 11.4
 - C++17 or newer
-- [stb_image](https://github.com/nothings/stb) any recent version
+- [stb_image](https://github.com/nothings/stb) any recent version.
+- - Only `stb_image.h` is necessary, you don't need to build the whole project.
 
 The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Linux 8.7.
 
@@ -97,15 +98,17 @@ Recent Added Changes:
 3. Source term has been addded to equations, but is not currently used in any simulations.
 4. 3D versions are already available.
 5. Flexible boundary conditions are available.
+6. Transient model (2D + 1D) is currently available, seems to work well.
+7. Initial concentration distributions have been implemented for transient simulation, but not yet for the other methods.
 
 Upcoming changes (in no particular order):
-- Time discretizations (2D + 1D and 3D + 1D).
+- Time discretizations (3D + 1D).
     - Crank-Nicolson method.
-    - Fully implicit method.  
-- More output options.
-- File-system re-arrangement (the singular helper file is getting busy).
-- tiff-based outputs for flux and concentration mapping.
-- Multi-GPU version for HPC use.
+- More output options (some concentration and flux distributions have been implemented already).
+- File-system re-arrangement (the singular helper file is getting busy, this will be a major change).
+- tiff-based outputs for flux and concentration mapping (maybe).
+- Multi-GPU version for HPC use (coming soon, using CUDA Cooperative Groups).
+- More solver options (different simulations have different needs).
 
 Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
 
