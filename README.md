@@ -23,7 +23,7 @@ This list reflects what we tested on and can confirm that runs properly, but old
 - gcc >= 11.4
 - C++17 or newer
 - [stb_image](https://github.com/nothings/stb) any recent version.
-- - Only `stb_image.h` is necessary, you don't need to build the whole project.
+    - Only `stb_image.h` is necessary, you don't need to build the whole project.
 
 The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Linux 8.7.
 
