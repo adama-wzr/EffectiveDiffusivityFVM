@@ -1747,7 +1747,7 @@ void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double
             Jx = (Je + Jw) / 2.0;
             Jy = (Jn + Js) / 2.0;
 
-            fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
+            fprintf(OUT, "%d,%d,%1.3e,%1.3e\n", col, row, Jx, Jy);
         }
     }
 
@@ -1983,7 +1983,6 @@ int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_
     if (mesh->currentTime < opts->cd_time)
     {
         flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
-        // flux = 0.1 * mesh->dt;      // 0.1 mol/m^2
         // flux = 0;
     } else
     {
@@ -5646,8 +5645,8 @@ int TransientFluxSim2D(options *opts)
 
     // set mesh parameters
 
-    mesh.dx = (double)54.0 * 1e-9;
-    mesh.dy = (double)54.0 * 1e-9;
+    mesh.dx = (double)108.0 * 1e-9;
+    mesh.dy = (double)108.0 * 1e-9;
 
     // Automatically find dt
 
@@ -5663,7 +5662,7 @@ int TransientFluxSim2D(options *opts)
 
     // maxDC = 1.0e-13;
 
-    mesh.dt = 10 * 0.95 * mesh.dx*mesh.dx/maxDC;
+    mesh.dt = 10 * mesh.dx*mesh.dx/maxDC;
 
     // Create arrays for BC's and DC's
 
@@ -5722,9 +5721,9 @@ int TransientFluxSim2D(options *opts)
 
     double checkTime;
 
-    double interval = 10;
+    double interval = 81;
 
-    int nImg = 90;
+    int nImg = 0;
 
     if(opts->StartMapFlag)
     {
@@ -5843,9 +5842,9 @@ int TransientFluxSim2D(options *opts)
         {
             printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
             // print maps
-            sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
+            // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
             // printCMAP2D(opts, &mesh, Concentration);
-            printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            // printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
             nImg++;
             checkTime += interval;
         }
