@@ -106,8 +106,11 @@ Upcoming changes (in no particular order):
     - Crank-Nicolson method.
 - More output options (some concentration and flux distributions have been implemented already).
 - File-system re-arrangement (the singular helper file is getting busy, this will be a major change).
+    - This is next in line, but I have to figure out how to make the code run on a PC without CUDA.
 - tiff-based outputs for flux and concentration mapping (maybe).
 - Multi-GPU version for HPC use (coming soon, using CUDA Cooperative Groups).
+    - multi-GPU with asynchronous execution is not super efficient, works well but struggles with large number of GPUs.
+    - Page locked memory is a must, but might not work well for older GPUs. 
 - More solver options (different simulations have different needs).
 
 Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
