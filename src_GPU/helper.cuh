@@ -225,7 +225,7 @@ __global__ void JI_SOR3D_kernel(
         double sigma = 0;
         for (int j = 1; j < 7; j++)
         {
-            if (A[myIdx * 7 + j] > 1e-15)
+            if (A[myIdx * 7 + j] != 0)
             {
                 if (j == 1)
                 {
@@ -4845,7 +4845,7 @@ int SteadyStateSim2D(options *opts)
 
         int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
 
-        if (DC[index] < 1e-15)
+        if (DC[index] == 0)
         {
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
@@ -5060,7 +5060,7 @@ int SteadyStateSim3D(options *opts)
         int row = (index - slice * mesh.numCellsX * mesh.numCellsY) / mesh.numCellsX;
         int col = (index - slice * mesh.numCellsX * mesh.numCellsY - row * mesh.numCellsX);
         int indexBC = (slice + 1) * (mesh.numCellsX + 2) * (mesh.numCellsY + 2) + (row + 1) * (mesh.numCellsX + 2) + (col + 1);
-        if (DC[index] < 1e-15)
+        if (DC[index] == 0)
         {
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
