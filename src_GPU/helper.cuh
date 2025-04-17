@@ -50,10 +50,14 @@ Last Update:
 #include <fstream>
 #include <cfloat>
 #include <set>
+#include <tuple>
 #include <string>
 #include "cuda_runtime.h"
 #include "cuda.h"
 #include <omp.h>
+#include <filesystem>
+
+#define FARADAY 9.648533e4         // C / mol
 
 // CUDA CHECK ERROR
 
@@ -107,6 +111,17 @@ typedef struct
     char inputType;          // Input format for 3D simulations (0 default .csv, 1 is stack)
     int useGPU;              // Use GPU or not?
     int nGPU;                // number of GPUs
+    int printFmap;           // dictates if flux map will be printed
+    char *FMapName;          // dictates the name of the output flux map
+    int TF_Flag;             // dicates if there will be a transient simulation or not
+    double Time;             // total runtime for the transient simulation. DT is determined automatically
+    double current;          // current applied
+    int charge;              // applied charge number
+    double cd_time;          // time for the charge/discharge step
+    double relaxTime;        // time required for relaxation
+    double StartTime;        // starting time for the simulation
+    int StartMapFlag;        // use CMAP as input?
+    char *StartMapName;      // input CMAP name
 } options;
 
 // Mesh related information
@@ -120,8 +135,12 @@ typedef struct
     double dx;
     double dy;
     double dz;
+    double dt;
+    double currentTime;
     long int iterCount;
     double conv;
+    double SA;
+    double SSA;
 } meshInfo;
 
 // Tortuosity related output
@@ -141,6 +160,39 @@ typedef struct
     int numCellsZ;
     long int nElements;
 } tauInfo;
+
+// Steady-State related output
+
+typedef struct
+{
+    double *VF;
+    double Deff;
+    double Deff_TH_Max;
+    int MeshAmpX;
+    int MeshAmpY;
+    int MeshAmpZ;
+    double Tau;
+    int numCellsX;
+    int numCellsY;
+    int numCellsZ;
+    long int nElements;
+} SSInfo;
+
+// Transient Flux output
+
+typedef struct
+{
+    double *VF;
+    double Deff;
+    int MeshAmpX;
+    int MeshAmpY;
+    int MeshAmpZ;
+    int numCellsX;
+    int numCellsY;
+    int numCellsZ;
+    long int nElements;
+    double simTime;
+} TF_Info;
 
 // Define coords for Flood Fill
 
@@ -173,7 +225,7 @@ __global__ void JI_SOR3D_kernel(
         double sigma = 0;
         for (int j = 1; j < 7; j++)
         {
-            if (A[myIdx * 7 + j] > 1e-15)
+            if (A[myIdx * 7 + j] != 0)
             {
                 if (j == 1)
                 {
@@ -333,6 +385,14 @@ int printOptions(options *opts)
             /*
                 Add here different time discretization requirements
             */
+            printf("Crank-Nicolson Method Selected:\n");
+            printf("Time-step: automatic.\n");
+            printf("Total Time: %1.3e\n",opts->Time);
+            printf("Current = %1.3e\n", opts->current);
+            printf("Charge: %d\n", opts->charge);
+            printf("Faraday: %1.3e\n", (double) FARADAY );
+            printf("C/D Time: %1.3e\n", opts->cd_time);
+            printf("Relax Time: %1.3e\n", opts->relaxTime);
         }
 
         // mesh amplificaiton
@@ -444,6 +504,10 @@ int printOpts_Tau(options *opts)
     {
         printf("CMAP Name: %s\n", opts->CMapName);
     }
+    if (opts->printFmap == 1)
+    {
+        printf("FMAP Name: %s\n", opts->FMapName);
+    }
     if (opts->printOut == 1)
     {
         printf("Output File Name: %s\n", opts->outputFilename);
@@ -491,6 +555,8 @@ void readInputGeneral(char *FileName, options *opts)
     opts->inputFilename = (char *)malloc(1000 * sizeof(char));
     opts->outputFilename = (char *)malloc(1000 * sizeof(char));
     opts->CMapName = (char *)malloc(1000 * sizeof(char));
+    opts->FMapName = (char *)malloc(1000 * sizeof(char));
+    opts->StartMapName = (char *)malloc(1000 * sizeof(char));
 
     // variables for reading diffusion coefficients (DC) and the thresholds (DC_TH)
 
@@ -508,11 +574,20 @@ void readInputGeneral(char *FileName, options *opts)
 
     opts->BatchFlag = 0;
     opts->inputType = 0;
+    opts->Time = 0.0;
+    opts->current = 0;
+    opts->charge = 0;
+    opts->StartTime = 0;
 
     opts->nThreads = 1;
 
     opts->useGPU = 0;
     opts->nGPU = 1;
+
+    opts->SteadyStateFlag = 0;
+    opts->tauSim = 0;
+    opts->TF_Flag = 0;
+    opts->StartMapFlag = 0;
 
     /*
     --------------------------------------------------------------------------------
@@ -659,6 +734,52 @@ void readInputGeneral(char *FileName, options *opts)
         {
             opts->POI_B[1] = (unsigned char)tempD;
         }
+        else if (strcmp(tempC, "printFMap:") == 0)
+        {
+            opts->printFmap = (int)tempD;
+        }
+        else if (strcmp(tempC, "FMapName:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(opts->FMapName, tempFilenames);
+        }
+        else if (strcmp(tempC, "TF:") == 0)
+        {
+            opts->TF_Flag = (int)tempD;
+        }
+        else if (strcmp(tempC, "Charge:") == 0)
+        {
+            opts->charge = (int)tempD;
+        }
+        else if (strcmp(tempC, "Current:") == 0)
+        {
+            opts->current = tempD;
+        }
+        else if (strcmp(tempC, "Time:") == 0)
+        {
+            opts->Time = tempD;
+        }
+        else if (strcmp(tempC, "CD_Time:") == 0)
+        {
+            opts->cd_time = tempD;
+        }
+        else if (strcmp(tempC, "Relax_Time:") == 0)
+        {
+            opts->relaxTime = tempD;
+        }
+        else if (strcmp(tempC, "StartTime:") == 0)
+        {
+            opts->StartTime = tempD;
+        }
+        else if (strcmp(tempC, "StartFlag:") == 0)
+        {
+            opts->StartMapFlag = (int)tempD;
+        }
+        else if (strcmp(tempC, "InitCmap:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(opts->StartMapName, tempFilenames);
+        }
 
         // Update the number of expected diffusion coefficients and thresholding for image
         // processing
@@ -669,6 +790,79 @@ void readInputGeneral(char *FileName, options *opts)
             sprintf(tempDC_TH, "D_TH%d:", DC_TH_read);
     }
     return;
+}
+
+int readInputCMap2D(options *opts, meshInfo *mesh, double *Concentration)
+{
+    /*
+        Function readInputCMap2D:
+        Inputs:
+            - pointer to user opts struct
+            - pointer to mesh struct
+            - pointer to Concentration array (empty)
+        Outputs:
+            - None
+        
+        The function populates the Concentration array with the CMAP
+        that is input from the user.
+    */
+
+    // parameters for reading
+    int width;
+    width = mesh->numCellsX;
+
+    // declare needed arrays to read the image
+
+    int *x = (int *)malloc(mesh->nElements*sizeof(int));
+    int *y = (int *)malloc(mesh->nElements*sizeof(int));
+    double* C = (double *)malloc(mesh->nElements*sizeof(double));
+
+    // Make sure they are all zeroes
+
+    memset(x, 0, mesh->nElements * sizeof(int));
+    memset(y, 0, mesh->nElements * sizeof(int));
+    memset(C, 0.0, mesh->nElements * sizeof(double));
+
+    // Read file
+
+    FILE *target_data;
+
+    target_data = fopen(opts->StartMapName, "r");
+
+    // check if file exists
+
+    if (target_data == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[20];
+
+    fscanf(target_data, "%c,%c,%c", &header[0], &header[1], &header[2]);
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%d,%d,%lf", &x[count], &y[count], &C[count]) == 3)
+    {
+        count++;
+    }
+
+    long int index = 0;
+
+    for(long int i = 0; i < count; i++)
+    {
+        index = y[i] * width + x[i];
+        Concentration[index] = C[i];
+    }
+
+    // memory management
+
+    free(x);
+    free(y);
+    free(C);
+
+    return 0;
 }
 
 int readCSV3D(options *opts, char *simObject)
@@ -999,6 +1193,43 @@ int readImg2D(options *opts, meshInfo *mesh, char *&simObject)
 
 */
 
+int printCoeff2D(double *Coeff, double *RHS, double *Conc, meshInfo *mesh)
+{
+    /*
+        Inputs:
+            - Pointer to coefficient matrix
+            - Pointer to RHS vector
+            - Pointer to Concentration vector
+            - Pointer to mesh struct
+        Outputs:
+            - None.
+        
+        Function will print the coefficient matrx to a file. This is not a very robust function,
+        but it is mainly used for debugging, so it's fine. The file name is just hardcoded inside.
+    
+    */
+
+    FILE *COEFF = fopen("Coeff2D.csv", "w+");
+    fprintf(COEFF, "x,y,ap,aw,ae,as,an,RHS,C\n");
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        int row = i / mesh->numCellsX;
+        int col = i - row * mesh->numCellsX;
+
+        fprintf(COEFF, "%d,%d,%1.3e,", col, row, Coeff[i*5 + 0]);
+        for(int j = 1; j < 5; j++)
+        {
+            fprintf(COEFF, "%1.3e,", Coeff[i * 5 + j]);
+        }
+
+        fprintf(COEFF, "%1.3e, %1.3e\n", RHS[i], Conc[i]);
+    }
+
+    fclose(COEFF);
+
+    return 0;
+}
+
 int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
 {
     /*
@@ -1056,6 +1287,66 @@ int printOutputTau(options *opts, meshInfo *mesh, tauInfo *tInfo)
     return 0;
 }
 
+void printOutSS2D(options *opts, SSInfo *info, meshInfo *mesh)
+{
+
+    bool headerFlag = true;
+
+    // Check if file exists
+
+    if (FILE *TEST = fopen(opts->outputFilename, "r"))
+    {
+        fclose(TEST);
+        headerFlag = false;
+    }
+
+    // Open file
+
+    FILE *OUT = fopen(opts->outputFilename, "a+");
+
+    if (headerFlag)
+    {
+        if (opts->nD == 2)
+        {
+            fprintf(OUT, "inputName,nX,nY,Iter,Conv,COM,Deff,DeffMax,Tau");
+        }
+        else if (opts->nD == 3)
+        {
+            fprintf(OUT, "inputName,nX,nY,nZ,Iter,Conv,COM,VF,eVF,Deff,DeffMax,Tau");
+        }
+        // Check how many VF's need to be printed
+        for (int i = 0; i < opts->numDC; i++)
+        {
+            fprintf(OUT, ",VF%d", i + 1);
+        }
+        fprintf(OUT, "\n");
+    }
+
+    // print output from inputs
+
+    fprintf(OUT, "%s,%d,%d,", opts->inputFilename, mesh->numCellsX, mesh->numCellsY);
+
+    if (opts->nD == 3)
+        fprintf(OUT, "%d,", mesh->numCellsZ);
+
+    // print results
+    fprintf(OUT, "%ld,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e", mesh->iterCount, mesh->conv, 0.0, info->Deff, info->Deff_TH_Max, info->Tau);
+
+    // print VF's
+
+    for (int i = 0; i < opts->numDC; i++)
+    {
+        fprintf(OUT, ",%1.3e", info->VF[i]);
+    }
+
+    fprintf(OUT, "\n");
+
+    // close file
+    fclose(OUT);
+
+    return;
+}
+
 /*
 
     Auxiliary Functions:
@@ -1079,6 +1370,389 @@ double WeightedHarmonicMean(double w1, double w2, double x1, double x2)
     */
     double H = (w1 + w2) / (w1 / x1 + w2 / x2);
     return H;
+}
+
+double CoM2D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
+{
+    /*
+        CoM2D Function:
+        Inputs:
+            - pointer to coefficient matrix
+            - pointer to Concentration matrix
+            - pointer to Right-hand side array
+            - pointer to mesh info struc
+        Outputs:
+            - function will return residual = sum(fabs(Ax - b))
+    */
+    double sum = 0;
+    double Ax = 0;
+
+    // set distance offsets to x-vector
+
+    int offset[5];
+
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        Ax = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            if (Coeff[i * 5 + k] != 0)
+                Ax += Coeff[i * 5 + k] * Conc[i + offset[k]];
+        }
+        sum += fabs(Ax - RHS[i]);
+    }
+
+    return sum;
+}
+
+double CoM3D(double *Coeff, double *Conc, double *RHS, meshInfo *mesh)
+{
+    /*
+        CoM3D Function:
+        Inputs:
+            - pointer to coefficient matrix
+            - pointer to Concentration matrix
+            - pointer to Right-hand side array
+            - pointer to mesh info struc
+        Outputs:
+            - function will return residual = sum(fabs(Ax - b))
+    */
+    double sum = 0;
+    double Ax = 0;
+
+    // set distance offsets to x-vector
+
+    int offset[7];
+
+    offset[0] = 0;
+    offset[1] = -1;
+    offset[2] = 1;
+    offset[3] = mesh->numCellsX;
+    offset[4] = -mesh->numCellsX;
+    offset[5] = mesh->numCellsX * mesh->numCellsY;
+    offset[6] = -mesh->numCellsX * mesh->numCellsY;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        Ax = 0;
+        for (int k = 0; k < 7; k++)
+        {
+            if (Coeff[i * 7 + k] != 0)
+                Ax += Coeff[i * 7 + k] * Conc[i + offset[k]];
+        }
+        sum += fabs(Ax - RHS[i]);
+    }
+
+    return sum;
+}
+
+void activeSA_2D(options *opts, meshInfo *mesh, double *DC)
+{
+    /*
+        activeSA_2D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+        Outputs:
+            - None.
+        Function will calculate the surface area and specific surface area
+        between active surfaces.
+    */
+    double SA = 0;
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        if (DC[index] == 0)
+            continue;
+        int row = index/mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        // Check West
+        if (col != 0)
+        {
+            if(DC[index] != DC[index - 1] && DC[index - 1] != 0)
+                SA += 1;
+        }
+
+        // Check East
+        if (col != mesh->numCellsX - 1)
+        {
+            if(DC[index] != DC[index + 1] && DC[index + 1] != 0)
+                SA += 1;
+        }
+
+        // Check North
+        if (row != 0 )
+        {
+            if (DC[index] != DC[index - mesh->numCellsX] && DC[index - mesh->numCellsX != 0])
+                SA += 1;
+        }
+
+        // Check South
+        if (row != mesh->numCellsY - 1)
+        {
+            if (DC[index] != DC[index + mesh->numCellsX] && DC[index + mesh->numCellsX] != 0)
+                SA += 1;
+        }
+    }
+
+    // calculate SA and SSA based on the number of active faces we just counted.
+
+    printf("SA = %1.3e\n", SA);
+
+    mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
+    mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
+
+    return;
+}
+
+void printCMAP2D(options *opts, meshInfo *mesh, double *Concentration)
+{
+
+    /*
+        printCMAP2D:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file using a
+        user entered name.
+
+    */
+    FILE *OUT;
+
+    OUT = fopen(opts->CMapName, "w");
+    fprintf(OUT, "x,y,C\n");
+    for (int i = 0; i < mesh->numCellsY; i++)
+    {
+        for (int j = 0; j < mesh->numCellsX; j++)
+        {
+            if (Concentration[i * mesh->numCellsX + j] != Concentration[i * mesh->numCellsX + j])
+            {
+                Concentration[i * mesh->numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j, i);
+            }
+
+            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh->numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+    return;
+}
+
+void printCMAP2D_Transient(options *opts, meshInfo *mesh, double *Concentration, int nMap)
+{
+
+    /*
+        printCMAP2D_Transient:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+            - int nMap, number of CMAP
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file. These files
+        will all be put in the same output folder.
+    */
+
+    // folder and file names
+    char foldername[100];
+    char filename[100];
+
+    sprintf(foldername, "OutputCMaps");
+    sprintf(filename, "CMAP_%05d.csv", nMap);
+
+    // check if folder exists
+    if(!std::filesystem::is_directory(foldername) || !std::filesystem::exists(foldername))
+    {
+        // create folder
+        std::filesystem::create_directory(foldername);
+    }
+
+    std::filesystem::path dir (foldername);
+    std::filesystem::path file (filename);
+    std::filesystem::path full_path = dir / file;
+
+    // open file and save cmap
+
+    FILE *OUT;
+
+    OUT = fopen(full_path.generic_string().c_str(), "w");
+
+    fprintf(OUT, "x,y,C\n");
+    for (int i = 0; i < mesh->numCellsY; i++)
+    {
+        for (int j = 0; j < mesh->numCellsX; j++)
+        {
+            if (Concentration[i * mesh->numCellsX + j] != Concentration[i * mesh->numCellsX + j])
+            {
+                Concentration[i * mesh->numCellsX + j] = 0;
+                printf("NaN Found at col %d, row %d\n", j, i);
+            }
+
+            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh->numCellsX + j]);
+        }
+    }
+
+    fclose(OUT);
+
+    return;
+}
+
+void printFluxMap2D(options *opts, meshInfo *mesh, double *Concentration, double *DC, int *BC, double *BC_values)
+{
+
+    /*
+        printFluxMap2D:
+        Inputs:
+            - pointer to options
+            - pointer to mesh parameters
+            - pointer to concentration distribution.
+            - pointer to the diffusion coefficients.
+            - pointer to boundary conditions.
+            - pointer to BC values.
+        Outputs:
+            - none.
+
+        Function will create and print a concentration distribution map to a .csv file using a
+        user entered name.
+
+    */
+    FILE *OUT;
+
+    OUT = fopen(opts->FMapName, "w");
+    fprintf(OUT, "x,y,Jx,Jy\n");
+    double Jx, Jy;
+    double Jw, Je, Jn, Js;
+    double dx = mesh->dx;
+    double dy = mesh->dy;
+
+    double de, dw, ds, dn;
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        for (int col = 0; col < mesh->numCellsX; col++)
+        {
+
+            int index = row * mesh->numCellsX + col;
+            long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+            Jx = 0;
+            Jy = 0;
+            Js = 0;
+            Jn = 0;
+            Je = 0;
+            Jw = 0;
+            // check if this is non-participating media or boundary condition
+
+            if (BC[indexBC] != 0)
+            {
+                Jx = 0.0;
+                Jy = 0.0;
+                fprintf(OUT, "%d,%d,%lf,%lf\n", col, row, Jx, Jy);
+                continue;
+            }
+
+            // west
+
+            if (BC[indexBC - 1] == 0)
+            {
+                // no west boundary
+                dw = WeightedHarmonicMean(dx / 2, dx / 2, DC[index], DC[index - 1]);
+                Jw = dw * (dy) / dx * (Concentration[index] - Concentration[index - 1]);
+            }
+            else if (BC[indexBC - 1] == 1)
+            {
+                // fixed concentration BC
+                dw = DC[index];
+                Jw = dw * (dy) / (dx / 2) * (Concentration[index] - BC_values[indexBC - 1]);
+            }
+            else if (BC[indexBC - 1] == 2)
+            {
+                // fixed flux BC
+                Jw = (dy)*BC_values[indexBC - 1];
+            }
+
+            // East
+
+            if (BC[indexBC + 1] == 0)
+            {
+                // East no boundary
+                de = WeightedHarmonicMean(dx / 2, dx / 2, DC[index + 1], DC[index + 1]);
+                Je = de * (dy) / dx * (Concentration[index + 1] - Concentration[index]);
+            }
+            else if (BC[indexBC + 1] == 1)
+            {
+                // fixed concentration BC
+                de = DC[index];
+                Je = de * (dy) / (dx / 2) * (BC_values[indexBC + 1] - Concentration[index]);
+            }
+            else if (BC[indexBC + 1] == 2)
+            {
+                // fixed flux BC
+                Je = (dy)*BC_values[indexBC + 1];
+            }
+
+            // North
+
+            if (BC[indexBC - (mesh->numCellsX + 2)] == 0)
+            {
+                // North no boundary
+                dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[index], DC[index - mesh->numCellsX]);
+                Jn = dn * (dx) / dy * (Concentration[index] - Concentration[index - mesh->numCellsX]);
+            }
+            else if (BC[indexBC - (mesh->numCellsX + 2)] == 1)
+            {
+                // fixed concentration BC
+                dn = DC[index];
+                Jn = dn * (dx) / (dy / 2) * (Concentration[index] - BC_values[indexBC - (mesh->numCellsX + 2)]);
+            }
+            else if (BC[indexBC - (mesh->numCellsX + 2)] == 2)
+            {
+                // fixed flux BC
+                Jn = (dx)*BC_values[indexBC - (mesh->numCellsX + 2)];
+            }
+
+            // South
+
+            if (BC[indexBC + (mesh->numCellsX + 2)] == 0)
+            {
+                // North no boundary
+                ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[index], DC[index + mesh->numCellsX]);
+                Js = ds * (dx) / dy * (Concentration[index + mesh->numCellsX] - Concentration[index]);
+            }
+            else if (BC[indexBC + (mesh->numCellsX + 2)] == 1)
+            {
+                // fixed concentration BC
+                ds = DC[index];
+                Js = ds * (dx) / (dy / 2) * (BC_values[indexBC + (mesh->numCellsX + 2)] - Concentration[index]);
+            }
+            else if (BC[indexBC + (mesh->numCellsX + 2)] == 2)
+            {
+                // fixed flux BC
+                Js = (dx)*BC_values[indexBC + (mesh->numCellsX + 2)];
+            }
+
+            Jx = (Je + Jw) / 2.0;
+            Jy = (Jn + Js) / 2.0;
+
+            fprintf(OUT, "%d,%d,%1.3e,%1.3e\n", col, row, Jx, Jy);
+        }
+    }
+
+    fclose(OUT);
+    return;
 }
 
 /*
@@ -1281,6 +1955,78 @@ int SetBC_DeffSetup2D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
     return 0;
 }
 
+int SetBC_TransientFluxSetup(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
+{
+    /*
+        Function SetBC_TranientFluxSetup:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to BC classification array
+            - pointer to BC_value array (value of BC for Neumann or Dirichlet)
+            - pointer to DC array
+        Output:
+            - None
+
+        The function will classify the entire BC array with no flux BCs. On one side, there will be a flux
+        applied, only when the current is on.
+    */
+
+    // Set some variables to help
+    int nCols, nRows;
+    nCols = mesh->numCellsX + 2;
+    nRows = mesh->numCellsY + 2;
+    // On the BC array, we need to classify all boundaries as Neumann with flux = 0.
+    // On the left, if t < t_cutoff and DC[i] != 0, then flux = dy/(dx) I/(SZF)
+    double flux;
+
+    if (mesh->currentTime < opts->cd_time)
+    {
+        flux = mesh->dt * opts->current/(mesh->SA * opts->charge * FARADAY);
+        // flux = 0;
+    } else
+    {
+        flux = 0;
+    }
+
+    printf("SA: %1.3e, Flux = %1.3e\n", mesh->SA, flux);
+
+    int right, left, top, bottom;
+    // set col values for right and left
+    left = 0;
+    right = nCols - 1;
+
+    // set row values for top and bottom
+    top = 0;
+    bottom = nRows - 1;
+
+    // right and left boundaries (Neumann)
+
+    for (int i = 0; i < nRows; i++)
+    {
+        // right side
+        BC[i * nCols + right] = 2; // Neumann
+        BC_Value[i * nCols + right] = 0;
+
+        // left side
+        BC[i * nCols + left] = 2; // Neumann
+        BC_Value[i * nCols + left] = flux;
+    }
+
+    // set Neumann boundaries
+
+    for (int j = 0; j < nCols; j++)
+    {
+        // top
+        BC[top * nCols + j] = 2;
+
+        // bottom
+        BC[bottom * nCols + j] = 2;
+    }
+
+    return 0;
+}
+
 int SetBC_DeffSetup3D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
 {
     /*
@@ -1402,7 +2148,7 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 
     for (int row = 0; row < mesh->numCellsY; row++)
     {
-        // set right
+        // set left
         if (Domain[row * mesh->numCellsX + left] == -1)
         {
             Domain[row * mesh->numCellsX + left] = 0;
@@ -1529,6 +2275,175 @@ int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
     return 0;
 }
 
+int FloodFill2D_RightSideStart(meshInfo *mesh, int *BC, double *DC)
+{
+    /*
+        FloodFill2D_RightSideStart function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to array with BC's
+            - pointer to array with DC's
+        Outputs:
+            - None
+
+        The function will search the domain, and will set all DC values that are too
+        low to a Neumann BC with zero flux. Non-participating media will also be flagged
+        accordingly. This function starts from the right boundary.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        int row = index / mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+        if (DC[index] == 0)
+        {
+            Domain[index] = 0;
+            BC[indexBC] = 2;
+        }
+        else
+        {
+            Domain[index] = -1;
+        }
+    }
+
+    // Find permeable boundaries, add to open list
+
+    std::set<coordPair> cList;
+
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        // set right
+        if (Domain[row * mesh->numCellsX + right] == -1)
+        {
+            Domain[row * mesh->numCellsX + right] = 0;
+            cList.insert(std::pair(right, row));
+        }
+    }
+
+    // Search full domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // read coordinates
+
+        int col = pop.first;
+        int row = pop.second;
+
+        /*
+            We need to check North, South, East, and West for more fluid:
+
+            North = col + 0, row - 1
+            South = col + 0, row + 1
+            East  = col + 1, row + 0
+            West  = col - 1, row + 0
+
+            Note that diagonals are not considered a connection.
+            This code assumes no periodic boundary conditions (currently).
+        */
+        int tempRow, tempCol;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+
+        if (row > 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // South
+
+        tempCol = col;
+
+        if (row < mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+
+        if (col > 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // East
+
+        tempRow = row;
+
+        if (col < mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // end while
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    for (int index = 0; index < mesh->nElements; index++)
+    {
+        // Skip participating media
+        if (Domain[index] != -1)
+            continue;
+
+        int row = index / mesh->numCellsX;
+        int col = index - row * mesh->numCellsX;
+
+        long int indexBC = (row + 1) * (mesh->numCellsX + 2) + (col + 1);
+
+        // Set BC of non-participating media
+
+        BC[indexBC] = -1;
+    }
+
+    // memory management
+    free(Domain);
+
+    return 0;
+}
+
 int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 {
     /*
@@ -1575,7 +2490,7 @@ int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
 
     for (int row = 0; row < mesh->numCellsY; row++)
     {
-        // set right
+        // set left
         if (Domain[row * mesh->numCellsX + left] == -1)
         {
             Domain[row * mesh->numCellsX + left] = 0;
@@ -2872,6 +3787,349 @@ int DiscSS3D_Simple(options *opts,
     return 0;
 }
 
+
+int RHS_Update2D(meshInfo   *mesh,
+                int         *BC,
+                double      *BC_Value,
+                double      *CoeffMatrix,
+                double      *RHS,
+                double      *C0)
+{
+
+    /*
+        Function RHS_Update2D:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to BC types array
+            - pointer to BC_Values array
+            - pointer to CoeffMatrix array
+            - pointer to RHS array
+            - pointer to concentration values array from previous time step
+        Outputs:
+            - None.
+        
+        Function will update the RHS matrix according to the values from previous time-step.
+        Unless there is an update to BCs, then the Coeff Matrix does not see any changes.
+    */
+
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+    int row, col;
+    long int BC_index;
+    double ap;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // get the equivalent index for BC's
+        BC_index = (row + 1) * (nCols + 2) + (col + 1);
+
+        if (BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // update not needed
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // Reset RHS
+        RHS[i] = 0;
+        ap = 0;
+
+        // Contribution from last time step
+
+        RHS[i] += 2.0 * (dx * dy)/dt * C0[i];
+
+        // get a_p = sum(a_nb)
+
+        for(int j = 1; j < 5; j++)
+        {
+            ap += -CoeffMatrix[i * 5 + j];
+        }
+
+        // Check all directions for BCs
+
+        // West
+
+        if (BC[BC_index - 1] == 0)
+        {
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 1] * C0[i - 1];
+        } else if (BC[BC_index - 1] == 2)
+        {
+            RHS[i] += dx * dy * BC_Value[BC_index - 1];
+        }
+
+        // East
+
+        if (BC[BC_index + 1] == 0)
+        {
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
+        } else if (BC[BC_index + 1] == 2)
+        {
+            RHS[i] += dx * dy * BC_Value[BC_index + 1];
+        }
+
+        // South
+
+        if (BC[BC_index + (nCols + 2)] == 0)
+        {
+            // Contribution from last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
+        }
+        else if (BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] += dx * dy * BC_Value[BC_index + (nCols + 2)];
+        }
+
+        // North
+
+        if (BC[BC_index - (nCols + 2)] == 0)
+        {
+            // Contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
+        }
+        else if (BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] += dx * dy * BC_Value[BC_index - (nCols + 2)];
+        }
+
+        // last contribution is ap
+
+        RHS[i] += -ap * C0[i];
+    }
+
+    return 0;
+}
+
+
+int DiscTrans2D(options     *opts,
+                meshInfo    *mesh,
+                int         *BC,
+                double      *BC_Value,
+                double      *DC,
+                double      *CoeffMatrix,
+                double      *RHS,
+                double      *C0)
+{
+    /*
+        Function DiscTrans2D:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to BC (types)
+            - pointer to BC (values)
+            - pointer to DC
+            - pointer to Coefficient Matrix
+            - pointer to RHS
+            - pointer to concentration dist. at last time-step
+        Outputs:
+            - None.
+        
+        Function will create a 2D + 1D discretization of the given system based on
+        central differencing for the space dependent component and Crank-Nicolson
+        method for implicit time stepping. 
+    */
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+
+    int row, col;
+    long int BC_index;
+    double dw, de, ds, dn;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // get the equivalent index for BC's
+        BC_index = (row + 1) * (nCols + 2) + (col + 1);
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i * 5 + k] = 0;
+        }
+
+        if (BC[BC_index] != 0)
+        {
+            // this is a boundary, thus not part of the simulation
+            // 1*phi = 0;
+            CoeffMatrix[i * 5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // Contribution from last time step
+
+        RHS[i] += 2.0 * (dx * dy)/dt * C0[i];
+
+        // West
+
+        if (BC[BC_index - 1] == 0)
+        {
+            // west is not a boundary, proceed normally
+            dw = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i - 1]);
+            CoeffMatrix[i * 5 + 1] = -dw * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += dw * (dy) / dx;
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 1] * C0[i - 1];
+        }
+        else if (BC[BC_index - 1] == 1)
+        {
+            // west is fixed concentration boundary
+            /*
+                This is not accurate for transient simulation
+            */
+            dw = DC[i];
+            CoeffMatrix[i * 5 + 0] -= dw * (dy) / (dx / 2);
+            RHS[i] -= BC_Value[BC_index - 1] * dw * (dy) / (dx / 2);    // Probably need to change this for transient
+        }
+        else if (BC[BC_index - 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            // RHS[i] += BC_Value[BC_index - 1] * (dy);
+            RHS[i] += dx * dy * BC_Value[BC_index - 1];
+        } // other BC's not implemented yet
+
+        // East
+
+        if (BC[BC_index + 1] == 0)
+        {
+            // east is not a boundary, proceed normally
+            de = WeightedHarmonicMean(dx / 2, dx / 2, DC[i], DC[i + 1]);
+            CoeffMatrix[i * 5 + 2] = -de * (dy) / dx;
+            CoeffMatrix[i * 5 + 0] += de * (dy) / dx;
+            // Contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
+        }
+        else if (BC[BC_index + 1] == 1)
+        {
+            // east if fixed concentration
+            /*
+                This is not accurate for transient simulation
+            */
+            de = DC[i];
+            CoeffMatrix[i * 5 + 0] -= de * (dy) / (dx / 2);
+            RHS[i] -= BC_Value[BC_index + 1] * de * (dy) / (dx / 2);
+        }
+        else if (BC[BC_index + 1] == 2)
+        {
+            // Flux boundary (Neumann)
+            RHS[i] += BC_Value[BC_index + 1] * (dy);
+        }
+
+        // South
+
+        if (BC[BC_index + (nCols + 2)] == 0)
+        {
+            // south is not a boundary
+            ds = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i + nCols]);
+            CoeffMatrix[i * 5 + 3] = -ds * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += ds * (dx) / dy;
+            // Contribution from last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 3] * C0[i + nCols];
+        }
+        else if (BC[BC_index + (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            /*
+                This is not accurate for transient simulation
+            */
+            ds = DC[i];
+            CoeffMatrix[i * 5 + 0] -= ds * (dx) / (dy / 2);
+            RHS[i] -= BC_Value[BC_index + (nCols + 2)] * ds * (dx) / (dy / 2);
+        }
+        else if (BC[BC_index + (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] += dt * BC_Value[BC_index + (nCols + 2)] * (dx);
+        }
+
+        // North
+
+        if (BC[BC_index - (nCols + 2)] == 0)
+        {
+            // north is not a boundary
+            dn = WeightedHarmonicMean(dy / 2, dy / 2, DC[i], DC[i - nCols]);
+            CoeffMatrix[i * 5 + 4] = -dn * (dx) / dy;
+            CoeffMatrix[i * 5 + 0] += dn * (dx) / dy;
+            // Contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 4] * C0[i - nCols];
+        }
+        else if (BC[BC_index - (nCols + 2)] == 1)
+        {
+            // Concentration BC (Dirichlet)
+            dn = DC[i];
+            CoeffMatrix[i * 5 + 0] -= dn * (dx) / (dy / 2);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)] * dn * (dx) / (dy / 2);
+        }
+        else if (BC[BC_index - (nCols + 2)] == 2)
+        {
+            // Flux BC (Neumann)
+            RHS[i] -= dt * BC_Value[BC_index - (nCols + 2)] * (dx);
+        }
+
+        // P Contribution from previous time-step
+
+        RHS[i] += -CoeffMatrix[i * 5 + 0] * C0[i];
+        CoeffMatrix[i * 5 + 0] += 2.0 * dx * dy/dt;
+
+        // end
+    }
+
+    return 0;
+}
+
 /*
 
     GPU Space Management:
@@ -2999,15 +4257,15 @@ int unInitGPU_SOR(double **d_Coeff,
 
 */
 
-int JI2D_SOR(double *Coeff,
-             double *RHS,
-             double *Concentration,
-             double *d_Coeff,
-             double *d_RHS,
-             double *d_Conc,
-             double *d_ConcTemp,
-             options *opts,
-             meshInfo *mesh)
+int JI2D_SOR(double     *Coeff,
+             double     *RHS,
+             double     *Concentration,
+             double     *d_Coeff,
+             double     *d_RHS,
+             double     *d_Conc,
+             double     *d_ConcTemp,
+             options    *opts,
+             meshInfo   *mesh)
 {
     /*
         Function JI2D_SOR:
@@ -3034,7 +4292,7 @@ int JI2D_SOR(double *Coeff,
     int numBlocks = mesh->nElements / threads_per_block + 1;
 
     double pctChange = 1;
-    int iterToCheck = 1000;
+    int iterToCheck = 100;
 
     // copy arrays into GPU
 
@@ -3102,17 +4360,120 @@ int JI2D_SOR(double *Coeff,
     CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
                           sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
 
-    // print success
+    // store info to print
 
-    if (opts->verbose)
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
+
+    return 0;
+}
+
+int JI2D_TransientUpdate(
+             double     *RHS,
+             double     *Concentration,
+             double     *d_Coeff,
+             double     *d_RHS,
+             double     *d_Conc,
+             double     *d_ConcTemp,
+             options    *opts,
+             meshInfo   *mesh)
+{
+    /*
+        Function JI2D_SOR:
+        Inputs:
+            - pointer to RHS matrix array
+            - pointer to Concentration distribution array
+            - pointer to device coefficient matrix
+            - pointer to device right-hand side array
+            - pointer to device concentration array
+            - pointer to device temporary concentration array storage
+            - pointer to options struct
+            - pointer to mesh struct
+        Outputs:
+            - None
+
+        This function will manage the host-device interactions for the Jacobi Iteration method
+        in 2D, with a standard over-relaxation applied. The function will manage data transfers,
+        convergence criteria, and kernel coordination. The difference between this one and JI2D_SOR
+        is that this one has less memory transfers, as a lot of the information is already in the GPU.
+    */
+
+    long int iterCount = 0;
+    int threads_per_block = 128;
+    int numBlocks = mesh->nElements / threads_per_block + 1;
+
+    double pctChange = 1;
+    int iterToCheck = 100;
+
+    // Update RHS on GPU 
+
+    CHECK_CUDA(cudaMemcpy(d_RHS, RHS,
+                          sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice));
+
+    // Create Array to store temp Conc
+
+    double *TempConc = (double *)malloc(sizeof(double) * mesh->nElements);
+
+    memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+
+    // start the main loop
+
+    while (iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        // call kernel
+
+        JI_SOR2D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+                                                          mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        // check convergence
+
+        if (iterCount % iterToCheck == 0 && iterCount != 0)
+        {
+            // copy array from device to host
+            CHECK_CUDA(cudaMemcpy(Concentration, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
+
+            // compare
+            double sum = 0;
+            long int count = 0;
+
+            for (int i = 0; i < mesh->nElements; i++)
+            {
+                if (Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - TempConc[i]) / Concentration[i]);
+                    count++;
+                }
+            }
+            // calculate the change
+            pctChange = sum / count;
+            // copy memory to temp conc
+            memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+        }
+
+        // update d_Conc = d_ConcTemp
+
+        CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
+
+        // increment
+        iterCount++;
     }
+
+    // copy the solution
+
+    CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
+                          sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
 
     // store info to print
 
     mesh->conv = pctChange;
     mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
 
     return 0;
 }
@@ -3231,7 +4592,7 @@ int JI3D_SOR(double *Coeff,
 
     if (opts->verbose)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
     }
 
     // store info to print
@@ -3304,7 +4665,7 @@ int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
 
     if (opts->verbose)
     {
-        printf("Total iter = %d, pct change = %lf\n", iterCount, pctChange);
+        printf("Total iter = %ld, pct change = %lf\n", iterCount, pctChange);
     }
 
     // store info to print
@@ -3415,6 +4776,7 @@ int SteadyStateSim2D(options *opts)
     // Initialize required data structures
 
     meshInfo mesh;
+    SSInfo printInfo;
 
     // For the 2D code, we can read the image straight up (no need for user entered info)
     char *simObject = nullptr;
@@ -3424,8 +4786,29 @@ int SteadyStateSim2D(options *opts)
 
     // return an error if the image wasn't read properly
 
-    if (readFlag == 1)
+    if (readFlag == 1 && opts->verbose)
+    {
+        printf("Error Reading File! Return Code 1\n");
         return 1;
+    }
+    else if (readFlag)
+    {
+        return 1;
+    }
+
+    // save parameters on SSInfo
+
+    printInfo.MeshAmpX = opts->MeshIncreaseX;
+    printInfo.MeshAmpY = opts->MeshIncreaseY;
+
+    printInfo.numCellsX = mesh.numCellsX;
+    printInfo.numCellsY = mesh.numCellsY;
+    printInfo.numCellsZ = 1;
+
+    printInfo.nElements = mesh.nElements;
+
+    printInfo.VF = (double *)malloc(sizeof(double) * opts->numDC);
+    memset(printInfo.VF, 0, sizeof(double) * opts->numDC);
 
     // set mesh parameters
 
@@ -3453,6 +4836,7 @@ int SteadyStateSim2D(options *opts)
     SetBC_DeffSetup2D(opts, &mesh, BC, BC_Value);
 
     // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
+    // also get VF's based on DC
 
     for (int index = 0; index < mesh.nElements; index++)
     {
@@ -3461,10 +4845,15 @@ int SteadyStateSim2D(options *opts)
 
         int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
 
-        if (DC[index] < 1e-15)
+        if (DC[index] == 0)
         {
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
+        }
+        for (int p = 0; p < opts->numDC; p++)
+        {
+            if (DC[index] == opts->DC[p])
+                printInfo.VF[p] += (double)1.0 / printInfo.nElements;
         }
     }
 
@@ -3545,25 +4934,48 @@ int SteadyStateSim2D(options *opts)
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
 
-    FILE *OUT;
+    // Print concentration map and mass flux map
 
-    OUT = fopen("ConDist2D.csv", "w");
-    fprintf(OUT, "x,y,C\n");
-    for (int i = 0; i < mesh.numCellsY; i++)
+    if (opts->printCmap)
     {
-        for (int j = 0; j < mesh.numCellsX; j++)
-        {
-            if (Concentration[i * mesh.numCellsX + j] != Concentration[i * mesh.numCellsX + j])
-            {
-                Concentration[i * mesh.numCellsX + j] = 0;
-                printf("NaN Found at col %d, row %d\n", j, i);
-            }
-
-            fprintf(OUT, "%d,%d,%lf\n", j, i, Concentration[i * mesh.numCellsX + j]);
-        }
+        printCMAP2D(opts, &mesh, Concentration);
     }
 
-    fclose(OUT);
+    if (opts->printFmap)
+    {
+        printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
+    }
+
+    // If additional output is required, print
+
+    if (opts->printOut)
+    {
+        // Calculate Deff
+        double J1 = 0;
+        double J2 = 0;
+        int right = mesh.numCellsX - 1;
+        int left = 0;
+        for (int j = 0; j < mesh.numCellsY; j++)
+        {
+            J1 += DC[j * mesh.numCellsX + left] * (Concentration[j * mesh.numCellsX + left] - opts->CLeft) / (mesh.dx / 2);
+            J2 += DC[j * mesh.numCellsX + right] * (opts->CRight - Concentration[j * mesh.numCellsX + right]) / (mesh.dx / 2);
+        }
+
+        double jAvg = (J1 + J2) / (2.0 * mesh.numCellsY);
+
+        printInfo.Deff_TH_Max = 0;
+
+        for (int i = 0; i < opts->numDC; i++)
+        {
+            printInfo.Deff_TH_Max += printInfo.VF[i] * opts->DC[i];
+        }
+
+        printInfo.Deff = jAvg / (opts->CRight - opts->CLeft);
+
+        printInfo.Tau = printInfo.Deff_TH_Max / printInfo.Deff;
+
+        printOutSS2D(opts, &printInfo, &mesh);
+    }
 
     // Memory management
 
@@ -3576,8 +4988,6 @@ int SteadyStateSim2D(options *opts)
     free(DC);
 
     free(simObject);
-
-    printf("Done?\n");
 
     return 0;
 }
@@ -3650,7 +5060,7 @@ int SteadyStateSim3D(options *opts)
         int row = (index - slice * mesh.numCellsX * mesh.numCellsY) / mesh.numCellsX;
         int col = (index - slice * mesh.numCellsX * mesh.numCellsY - row * mesh.numCellsX);
         int indexBC = (slice + 1) * (mesh.numCellsX + 2) * (mesh.numCellsY + 2) + (row + 1) * (mesh.numCellsX + 2) + (col + 1);
-        if (DC[index] < 1e-15)
+        if (DC[index] == 0)
         {
             DC[index] = 0;
             BC[indexBC] = 2; // set Neumann BC with zero flux
@@ -3901,7 +5311,7 @@ int Tau2D_Sim(options *opts)
 
     FILE *OUT;
 
-    OUT = fopen("Tau.csv", "w");
+    OUT = fopen(opts->CMapName, "w");
     fprintf(OUT, "x,y,C\n");
     for (int i = 0; i < mesh.numCellsY; i++)
     {
@@ -3938,7 +5348,7 @@ int Tau2D_Sim(options *opts)
     tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
     // Output file
-    
+
     if (opts->printOut == 1)
     {
         printOutputTau(opts, &mesh, &tInfo);
@@ -3951,7 +5361,13 @@ int Tau2D_Sim(options *opts)
         printf("eVF = %1.3lf, VF = %1.3lf, DeffMax = %1.3e, Deff = %1.3e, Tau = %1.3e\n",
                tInfo.eVF, tInfo.VF, tInfo.Deff_TH_MAX, tInfo.Deff, tInfo.Tau);
     }
-    
+
+    // test CoM
+
+    double CoM = CoM2D(CoeffMatrix, Concentration, RHS, &mesh);
+
+    printf("CoM = %lf\n", CoM);
+
     // Memory management
     free(RHS);
     free(CoeffMatrix);
@@ -4109,7 +5525,7 @@ int Tau3D_Sim(options *opts)
     {
         FILE *OUT;
 
-        OUT = fopen("TauTest_C.csv", "w");
+        OUT = fopen(opts->CMapName, "w");
         fprintf(OUT, "x,y,z,c\n");
         for (int i = 0; i < mesh.numCellsY; i++)
         {
@@ -4149,7 +5565,7 @@ int Tau3D_Sim(options *opts)
     tInfo.Tau = tInfo.Deff_TH_MAX / tInfo.Deff;
 
     // Output file
-    
+
     if (opts->printOut == 1)
     {
         printOutputTau(opts, &mesh, &tInfo);
@@ -4173,6 +5589,298 @@ int Tau3D_Sim(options *opts)
 
     free(simObject);
 
+    return 0;
+}
+
+int TransientFluxSim2D(options *opts)
+{
+    /*
+        TransientFluxSim2D:
+        Inputs:
+            - pointer to struct opts
+        Outputs:
+            - none.
+
+        Function will run a transient (2D + 1D) simulation based on user input.
+    */
+
+    // declare necessary strucs
+
+    meshInfo mesh;
+    TF_Info printInfo;
+
+    // For the 2D code, we can read the image straight up (no need for user entered info)
+    char *simObject = nullptr;
+    int readFlag = 0;
+
+    readFlag = readImg2D(opts, &mesh, simObject);
+
+    // return an error if the image wasn't read properly
+
+    if (readFlag == 1 && opts->verbose)
+    {
+        printf("Error Reading File! Return Code 1\n");
+        return 1;
+    }
+    else if (readFlag)
+    {
+        return 1;
+    }
+
+    // save parameters on SSInfo
+
+    printInfo.MeshAmpX = opts->MeshIncreaseX;
+    printInfo.MeshAmpY = opts->MeshIncreaseY;
+
+    printInfo.numCellsX = mesh.numCellsX;
+    printInfo.numCellsY = mesh.numCellsY;
+    printInfo.numCellsZ = 1;
+
+    printInfo.nElements = mesh.nElements;
+
+    mesh.currentTime = 0.0;
+
+    printInfo.VF = (double *)malloc(sizeof(double) * opts->numDC);
+    memset(printInfo.VF, 0, sizeof(double) * opts->numDC);
+
+    // set mesh parameters
+
+    mesh.dx = (double)108.0 * 1e-9;
+    mesh.dy = (double)108.0 * 1e-9;
+
+    // Automatically find dt
+
+    double maxDC = 0;
+
+    for(int i = 0; i <  opts->numDC; i++)
+    {
+        if(i == 0 && opts->DC[i] != 0)
+            maxDC = opts->DC[i];
+        else if( opts->DC[i] != 0 && opts->DC[i] > maxDC)
+            maxDC = opts->DC[i];
+    }
+
+    // maxDC = 1.0e-13;
+
+    mesh.dt = 10 * mesh.dx*mesh.dx/maxDC;
+
+    // Create arrays for BC's and DC's
+
+    double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
+    int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    // initialize arrays
+
+    memset(DC, 0, sizeof(double) * mesh.nElements);
+    memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    // Populate the array with the diffusion coefficients
+
+    SetDC2D(opts, &mesh, DC, simObject);
+
+    // Find surface area
+
+    activeSA_2D(opts, &mesh, DC);
+
+    // mesh.SA = mesh.SA*(5.4e-8)*(5.4e-8);
+
+    // Allocate arrays for holding discretized equations
+
+    double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
+    double *RHS = (double *)malloc(mesh.nElements * sizeof(double));
+    double *Concentration = (double *)malloc(mesh.nElements * sizeof(double));
+
+    double *C0 = (double *)malloc(sizeof(double) * mesh.nElements);
+
+    // initialize the memory
+
+    memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS, 0.0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0.0, mesh.nElements * sizeof(double));
+    memset(C0, 0.0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
+
+    // Start the CMaps, otherwise they are already initialized to 0
+
+    if(opts->StartMapFlag == 1)
+    {
+        readInputCMap2D(opts, &mesh, C0);
+        memcpy(Concentration, C0, sizeof(double) * mesh.nElements);
+    }
+
+    // Flood-Fill From Left Boundary only
+
+    FloodFill2D_RightSideStart(&mesh, BC, DC);
+
+    // variables needed during main loop
+
+    bool BC_Switch = true;
+
+    bool onFlag = true;
+
+    double checkTime;
+
+    double interval = 81;
+
+    int nImg = 0;
+
+    if(opts->StartMapFlag)
+    {
+        mesh.currentTime = opts->StartTime;
+        checkTime = opts->StartTime;
+    }
+    else
+    {
+        mesh.currentTime = 0;
+        checkTime = 0;
+    }
+        
+    // Declare needed arrays
+
+    double *d_Coeff = NULL;
+    double *d_RHS = NULL;
+    double *d_Conc = NULL;
+    double *d_ConcTemp = NULL;
+
+    // Now we confirm that there is a match in GPUs available and user expectations
+
+    if(opts->useGPU)
+    {
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts->nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts->nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts->nGPU = nDevices;
+        }
+
+        // Initialize the GPU arrays
+
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+    }
+    
+
+    // Main time-stepping loop
+
+    while(mesh.currentTime < opts->Time)
+    {
+        if(BC_Switch)
+        {
+            // Set Boundary Conditions
+            SetBC_TransientFluxSetup(opts, &mesh, BC, BC_Value);
+            // set if D[i,j] < 10^-15, D[i,j] = 0 becomes a Neumann BC
+
+            for (int index = 0; index < mesh.nElements; index++)
+            {
+                int row = index / (mesh.numCellsX);
+                int col = index - row * mesh.numCellsX;
+
+                int indexBC = (row + 1) * (mesh.numCellsX + 2) + (col + 1);
+
+                if (DC[index] == 0)
+                {
+                    DC[index] = 0;
+                    BC[indexBC] = 2; // set Neumann BC with zero flux
+                }
+                for (int p = 0; p < opts->numDC; p++)
+                {
+                    if (DC[index] == opts->DC[p])
+                        printInfo.VF[p] += (double)1.0 / printInfo.nElements;
+                }
+            }
+        }
+
+        if(BC_Switch)
+        {
+            // New discretization needed
+            DiscTrans2D(opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+        } else
+        {
+            // coefficient matrix is still good, just update the RHS
+            RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+        }
+
+        // Solve
+
+        if (opts->useGPU == 0)
+        {
+            // CPU Solve
+            omp_set_num_threads(opts->nThreads);
+
+            GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+            BC_Switch = false;
+        }
+        else
+        {
+            // GPU Solve
+            if (BC_Switch)
+            {
+                JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                         d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+                BC_Switch = false;
+            }
+            else
+            {
+                JI2D_TransientUpdate(RHS, Concentration, d_Coeff,
+                                     d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+            }
+        }
+
+        // update time
+
+        mesh.currentTime += mesh.dt;
+
+        if(mesh.currentTime  > checkTime)
+        {
+            printf("Current Time = %1.3e, DT = %1.3e\n", mesh.currentTime, mesh.dt);
+            // print maps
+            // sprintf(opts->CMapName,"t_%1.0lf.csv", mesh.currentTime);
+            // printCMAP2D(opts, &mesh, Concentration);
+            // printCMAP2D_Transient(opts, &mesh, Concentration, nImg);
+            nImg++;
+            checkTime += interval;
+        }
+
+        // Copy new concentration into C0
+
+        memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
+        
+        // if time > switch time, then switch BCs
+        if(mesh.currentTime > opts->cd_time && onFlag == true)
+        {
+            BC_Switch = true;
+            onFlag = false;
+        }
+    }
+
+    // if using GPU, free GPU memory
+    if(opts->useGPU)
+    {
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }
+
+    // print fmap and cmap
+    // printCoeff2D(CoeffMatrix, RHS, Concentration, &mesh);
+    printCMAP2D(opts, &mesh, Concentration);
+    printFluxMap2D(opts, &mesh, Concentration, DC, BC, BC_Value);
+
+
+    // Memory management
+    free(CoeffMatrix);
+    free(RHS);
+    free(Concentration);
+    free(C0);
+    free(BC);
+    free(BC_Value);
+    free(DC);
     return 0;
 }
 

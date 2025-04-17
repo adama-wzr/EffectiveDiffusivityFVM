@@ -27,7 +27,7 @@ int main(int argc, char **argv)
             Tau2D_Sim(&opts);
         }
     }
-    else if(opts.nD == 3)
+    else if(opts.nD == 3 && opts.SteadyStateFlag == 1)
     {
         if(opts.verbose) printOptions(&opts);
         if(opts.SteadyStateFlag == 1)
@@ -35,7 +35,7 @@ int main(int argc, char **argv)
             SteadyStateSim3D(&opts);
         }
     }
-    else if(opts.nD == 2)
+    else if(opts.nD == 2 && opts.SteadyStateFlag == 1)
     {
         if(opts.verbose) printOptions(&opts);
         if(opts.SteadyStateFlag == 1)
@@ -44,9 +44,13 @@ int main(int argc, char **argv)
         }
     }
 
-    
+    if (opts.TF_Flag)
+    {
+        if (opts.verbose)
+            printOptions(&opts);
+        if (opts.nD == 2)
+            TransientFluxSim2D(&opts);
+    }
 
-    
-    
     return 0;
 }

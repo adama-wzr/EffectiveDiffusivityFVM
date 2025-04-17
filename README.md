@@ -22,7 +22,8 @@ This list reflects what we tested on and can confirm that runs properly, but old
 - CUDA >= 11.5
 - gcc >= 11.4
 - C++17 or newer
-- [stb_image](https://github.com/nothings/stb) any recent version
+- [stb_image](https://github.com/nothings/stb) any recent version.
+    - Only `stb_image.h` is necessary, you don't need to build the whole project.
 
 The code has been tested on Ubuntu >= 20.04, Windows 10 and 11, and on Rocky Linux 8.7.
 
@@ -47,7 +48,7 @@ Sometimes, the code may fail to launch the kernel for the GPU. There are multipl
 nvcc -std=c++17 -Xcompiler -openmp -arch=sm_XX main.cu
 ```
 
-where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`).
+where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`). To verify your compute capability, check here [CUDA GPUs - Compute Capability](https://developer.nvidia.com/cuda-gpus).
 
 ## Required Files
 
@@ -77,7 +78,9 @@ Please cite one of the relevant publications shown below (more coming):
 
  ## Documentation
 
-The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository.
+The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository. The documentation only covers the old code in the Deff2D_GPU folder, which was part of the associated publication. A more comprehensive documentation folder will acompany major updates, version releases, and/or new publications.
+
+If there are any questions in the meanwhile, please feel free to reach out to one of the authors.
 
 ## Acknowledgements
 
@@ -89,21 +92,31 @@ This work used Expanse(GPU) at SDSC through allocations MAT210014 and MAT230071 
 
 Changes will be coming to this repository soon. A new branch for development will come out and start implementing some of the features described below, and they will only be committed to this folder once the changes are stable. For now, the folder with the 2D Effective Diffusivity code will remain unchanged.
 
-The list of new changes and new capabilities to the code will be added as follows (the order might change, but this is a tentative implementation guide):
+Recent Added Changes:
+1. Simulation mode for tortuosity in 2D and 3D has been implemented.
+2. CPU version with multi-threading currently implemented. It will be separated from the GPU code in future updates.
+3. Source term has been addded to equations, but is not currently used in any simulations.
+4. 3D versions are already available.
+5. Flexible boundary conditions are available.
+6. Transient model (2D + 1D) is currently available, seems to work well.
+7. Initial concentration distributions have been implemented for transient simulation, but not yet for the other methods.
 
-1. Expanded more general derivation of equations will allow for time dependent solutions.
-2. Mass generation/destruction will be implemented.
-3. CPU version with multi-threading.
-4. 3D version of the code will be available for 3D structures (with either a stack of 2D images or a csv file encoding in 3D).
-5. A multi-GPU version with HPC resources in mind for large-scale simulations.
-6. More flexible boundary conditions.
-7. Simulation mode for calculating tortuosity.
+Upcoming changes (in no particular order):
+- Time discretizations (3D + 1D).
+    - Crank-Nicolson method.
+- More output options (some concentration and flux distributions have been implemented already).
+- File-system re-arrangement (the singular helper file is getting busy, this will be a major change).
+    - This is next in line, but I have to figure out how to make the code run on a PC without CUDA.
+- tiff-based outputs for flux and concentration mapping (maybe).
+- Multi-GPU version for HPC use (coming soon, using CUDA Cooperative Groups).
+    - multi-GPU with asynchronous execution is not super efficient, works well but struggles with large number of GPUs.
+    - Page locked memory is a must, but might not work well for older GPUs. 
+- More solver options (different simulations have different needs).
 
 Additionally, some experimental features might come in the near future. At this time, I cannot provide a reasonable estimate of when these will be implemented (or if they will at all). In no particular order:
 
 - GUI:
-  - The actual GUI is a way to facilitate and/or guide the generation of the input file and calling the appropriate code versions based on user input.
-  - The GUI won't be necessary. While code can run from the GUI itself, the code will also run without the GUI.
+  - Running code on the GUI has significant impacts in terms of the overall efficiency. For now, if I do make a GUI at some point, it will mainly handle the input file generation, and not the actual simulation.
 - Higher-order discretization methods.
 - For the GPU code, I will try and implement some of the most recent cuBLAS and cuSPARSE solvers.
 - For the CPU code, implementation of [scaLAPACK](https://www.netlib.org/scalapack/) for solving the sparse systems. I will test those versus the already existing solvers, so we will see what works best.
