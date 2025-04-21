@@ -9,6 +9,7 @@ include_directories(
     EffectiveDiffusivityFVM PUBLIC
     # "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src_GPU"
+    "${PROJECT_SOURCE_DIR}/src"
     # "${PROJECT_SOURCE_DIR}/tests"
     # "${PROJECT_SOURCE_DIR}/src_cuda"
 )
@@ -29,13 +30,28 @@ set(PROJECT_SOURCES
 # Add Executable --------------------------------------------
 
 add_executable(
-    TPMS-Characterization
+    EffectiveDiffusivityFVM
     ${PROJECT_SOURCES}
 )
 
 # Compilation options to ensure this works with CUDA + OpenMP
-set_property(TARGET TPMS-Characterization PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-set_property(TARGET TPMS-Characterization PROPERTY CUDA_ARCHITECTURES 89)
-target_compile_features(TPMS-Characterization PUBLIC cxx_std_17)
+set_property(TARGET EffectiveDiffusivityFVM PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+set_property(TARGET EffectiveDiffusivityFVM PROPERTY CUDA_ARCHITECTURES 89)
+target_compile_features(EffectiveDiffusivityFVM PUBLIC cxx_std_17)
 
 # add submodels with target link executable
+
+
+set(TEST_SOURCES
+    src/SubModels/TransientSweepSimulatedDiffusimetry/TSSD.cu
+)
+
+add_executable(
+    TSSD
+    ${TEST_SOURCES}
+)
+
+# Compilation options to ensure this works with CUDA + OpenMP
+set_property(TARGET TSSD PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+set_property(TARGET TSSD PROPERTY CUDA_ARCHITECTURES 89)
+target_compile_features(TSSD PUBLIC cxx_std_17)
