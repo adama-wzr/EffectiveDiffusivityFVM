@@ -23,6 +23,7 @@ int main(int argc, char **argv)
 {
     // Declare structs
     options opts;
+    TSSDopts oTSSD;
     
     // TSSD Input Name
 
@@ -31,7 +32,16 @@ int main(int argc, char **argv)
 	sprintf(inputFilename, "inputTSSD.txt");
 
     // read input
-    readInputTSSD(inputFilename, &opts);
+
+    readInputGeneral(inputFilename, &opts);
+
+    // read input TSSD
+    readInputTSSD(inputFilename, &oTSSD);
+
+    // print options
+
+    if(opts.verbose)
+        printTSSD(&opts, &oTSSD);
 
     // Parse options and print if necessary
 
