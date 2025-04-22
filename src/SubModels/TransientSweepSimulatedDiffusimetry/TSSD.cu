@@ -31,6 +31,24 @@ int main(int argc, char **argv)
 
 	sprintf(inputFilename, "inputTSSD.txt");
 
+    // Check if file exists
+
+    bool fileExist = false;
+
+    // Check if file exists
+
+    if (FILE *TEST = fopen(inputFilename, "r"))
+    {
+        fclose(TEST);
+        fileExist = true;
+    }
+
+    if (!fileExist)
+    {
+        printf("Input file not found, returning...\n");
+        return 1;
+    }
+
     // read input
 
     readInputGeneral(inputFilename, &opts);
@@ -42,8 +60,6 @@ int main(int argc, char **argv)
 
     if(opts.verbose)
         printTSSD(&opts, &oTSSD);
-
-    // Parse options and print if necessary
 
     // Pseudo-Code
 

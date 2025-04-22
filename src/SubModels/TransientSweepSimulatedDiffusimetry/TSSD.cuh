@@ -26,8 +26,79 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     printf("--------------------------------------------\n\n");
 
     printf("Input image name: %s\n", opts->inputFilename);
+    printf("Number of Phases: %d\n", opts->numDC);
+    for(int i = 0; i < opts->numDC; i++)
+    {
+        printf("Phase = %d\n", i+1);
+        printf("Threshold (Upper Bound) = %d\n", opts->DC_TH[i]);
+        if(i == oTSSD->POI - 1)
+            printf("DC[%d] = ???\n", i+1);
+        else
+        {
+            printf("DC[%d] = %1.3e m^2/s\n", i+1, opts->DC[i]);
+        }
+    }
+
     printf("POI: %d\n", oTSSD->POI);
 
+    // mesh amplificaiton
+
+    printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
+    printf("Mesh Refine Y = %d\n", opts->MeshIncreaseY);
+    if (opts->nD == 3)
+    {
+        printf("Mesh Refine Z = %d\n", opts->MeshIncreaseZ);
+    }
+
+    // convergence
+
+    printf("Max. Iterations: %ld\n", opts->MAX_ITER);
+    printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
+
+    if (opts->useGPU == 1)
+    {
+        printf("Using %d GPU(s)\n", opts->nGPU);
+    }
+    else
+    {
+        printf("Number of Threads = %d\n", opts->nThreads);
+    }
+
+    if(oTSSD->printMAP)
+        printf("Printing CMaps and FMaps\n");
+    else
+        printf("Not printing maps, only save C(y,t)\n");
+
+
+    // TSSD Specific Options
+    printf("--------------------------------------------\n\n");
+    printf("            DC Search Options               \n\n");
+    printf("--------------------------------------------\n\n");
+
+    printf("DC Max:  %1.3e\n", oTSSD->DC_Max);
+    printf("DC Min:  %1.3e\n", oTSSD->DC_Min);
+    printf("DC Step: %1.3e\n", oTSSD->DC_Step);
+
+    printf("Start Time: %1.3f (sec)\n", oTSSD->startTime);
+    printf("Stop Time: %1.3f (sec)\n", oTSSD->totalTime);
+    printf("Save Interval: %1.3f (sec)\n", oTSSD->stepSize);
+
+    if(oTSSD->C_or_D)
+        printf("Simulating Charge\n");
+    else
+        printf("Simulating Discharge Step\n");
+    
+    printf("Current Density: %1.3f A\n", oTSSD->current_density);
+
+    if(oTSSD->D0 == 1)
+    {
+        printf("Anomalous Diffusion Information not entered.\n");
+    }
+    else
+    {
+        printf("Trace Species Diffusion: %1.3e m^2/s\n", oTSSD->D0);
+        printf("CMax: %1.3e mol/m^3\n", oTSSD->CMax);
+    }
 
     return;
 }
@@ -118,7 +189,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         }
         else if (strcmp(tempC, "printMaps:") == 0)
         {
-            oTSSD->C_or_D = (int)tempD;
+            oTSSD->printMAP = (int)tempD;
         }
     }
     return;
