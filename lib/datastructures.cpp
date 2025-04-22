@@ -18,6 +18,7 @@ typedef struct
     double stepSize;        // step time in seconds
     double totalTime;       // total experiment time
     double startTime;       // start time (if not 0)
+    double pixelRes;        // pixel resolution in m
 } TSSDopts;
 
 #endif

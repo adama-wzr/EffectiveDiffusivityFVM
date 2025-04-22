@@ -15,12 +15,13 @@ Convergence: 1e-4
 MaxIter: 1e6
 CL: 0
 CR: 1
-InputName: Cycled_SC90505_ds.jpg
+InputName: Cycled_MC811_3phase.jpg
 nThreads: 8
 Verbose: 1
 useGPU: 1
 nGPU: 1
 InitCmap: CMAP_00090.csv
+Charge: 1
 TSSD Options:
 POI: 3
 DC_Max: 1e-14
@@ -31,3 +32,4 @@ current_density: 1e-3
 startTime: 0
 stepSize: 300
 totalTime: 301
+pixelResolution: 5.4e-8

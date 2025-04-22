@@ -24,6 +24,7 @@ int main(int argc, char **argv)
     // Declare structs
     options opts;
     TSSDopts oTSSD;
+    meshInfo mesh;
     
     // TSSD Input Name
 
@@ -64,6 +65,52 @@ int main(int argc, char **argv)
     // Pseudo-Code
 
     // Load image to simulate
+
+    char *simData;
+
+    readImg2D(&opts, &mesh, simData);
+
+    // set mesh parameters
+
+    mesh.dx = oTSSD.pixelRes / mesh.numCellsX;
+    mesh.dy = oTSSD.pixelRes / mesh.numCellsY;
+
+    // Automatically find dt
+
+    double maxDC = 0;
+
+    for(int i = 0; i <  opts.numDC; i++)
+    {
+        if(i == 0 && opts.DC[i] != 0)
+            maxDC = opts.DC[i];
+        else if( opts.DC[i] != 0 && opts.DC[i] > maxDC)
+            maxDC = opts.DC[i];
+    }
+
+    mesh.dt = 10 * mesh.dx*mesh.dx/maxDC;
+
+    // Create arrays for BC's and DC's
+
+    double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
+    int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    // initialize arrays
+
+    memset(DC, 0, sizeof(double) * mesh.nElements);
+    memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    SetDC2D(&opts, &mesh, DC, simData);
+
+    // BC Conditions for TSSD Model
+
+    activeSA_2D(&opts, &mesh, DC);
+
+    SetBC_TSSD2D(&opts, &oTSSD, &mesh, BC, BC_Value);
+
+    // Flood-Fill Bottom Start
+    FloodFill2D_Bot(&mesh, BC, DC);
 
     // Remove non-participating media
 
