@@ -10,6 +10,9 @@ include_directories(
     # "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src_GPU"
     "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_SOURCE_DIR}/src/SubModels"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
+    # "${PROJECT_SOURCE_DIR}/src/SubModels"
     # "${PROJECT_SOURCE_DIR}/tests"
     # "${PROJECT_SOURCE_DIR}/src_cuda"
 )
@@ -20,6 +23,12 @@ include_directories(
 if (WIN32)
     enable_language(CUDA)
 endif (WIN32)
+
+if (UNIX)
+    find_package(OpenMP REQUIRED)
+    find_package(CUDA REQUIRED)
+    set(CMAKE_CUDA_COMPILER "nvcc")
+endif (UNIX)
 
 # Set Project Sources ----------------------------------------
 
@@ -39,6 +48,17 @@ set_property(TARGET EffectiveDiffusivityFVM PROPERTY CUDA_SEPARABLE_COMPILATION 
 set_property(TARGET EffectiveDiffusivityFVM PROPERTY CUDA_ARCHITECTURES 89)
 target_compile_features(EffectiveDiffusivityFVM PUBLIC cxx_std_17)
 
+# target_link_libraries(TPMS-Characterization PRIVATE OpenMP::OpenMP_CXX)
+
+if (UNIX)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=-fopenmp")
+
+    target_link_libraries(EffectiveDiffusivityFVM PRIVATE OpenMP::OpenMP_CXX)
+endif (UNIX)
+
+
+
 # add submodels with target link executable
 
 
@@ -51,7 +71,11 @@ add_executable(
     ${TEST_SOURCES}
 )
 
+if (UNIX)
+    target_link_libraries(TSSD PRIVATE OpenMP::OpenMP_CXX)
+endif(UNIX)
+
 # Compilation options to ensure this works with CUDA + OpenMP
 set_property(TARGET TSSD PROPERTY CUDA_SEPARABLE_COMPILATION ON)
-set_property(TARGET TSSD PROPERTY CUDA_ARCHITECTURES 89)
+set_property(TARGET TSSD PROPERTY CUDA_ARCHITECTURES 86 89)
 target_compile_features(TSSD PUBLIC cxx_std_17)
