@@ -12,7 +12,7 @@ include_directories(
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_SOURCE_DIR}/src/SubModels"
     "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
-    # "${PROJECT_SOURCE_DIR}/src/SubModels"
+    "${PROJECT_SOURCE_DIR}/lib/"
     # "${PROJECT_SOURCE_DIR}/tests"
     # "${PROJECT_SOURCE_DIR}/src_cuda"
 )
