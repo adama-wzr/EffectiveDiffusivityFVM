@@ -275,8 +275,15 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
         BC_Value[top *nCols + j] = 0;
 
         // bottom
-        BC[bottom * nCols + j] = 2;
-        BC_Value[bottom * nCols + j] = flux;
+        if(oTSSD->C_or_D == 0)
+        {
+            BC[bottom * nCols + j] = 2;
+            BC_Value[bottom * nCols + j] = -flux;
+        } else
+        {
+            BC[bottom * nCols + j] = 2;
+            BC_Value[bottom * nCols + j] = flux;
+        }
     }
 
     return;

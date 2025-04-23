@@ -28,7 +28,7 @@ DC_Max: 1e-14
 DC_Min: 1e-18
 DC_Step: 5
 C_or_D: 1
-current_density: 1e-3
+current_density: 5e-3
 startTime: 0
 stepSize: 300
 totalTime: 301
