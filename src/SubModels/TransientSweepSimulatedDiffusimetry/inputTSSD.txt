@@ -3,8 +3,8 @@ nD: 2
 inputType: 2
 numDC: 3
 D1: 0
-D2: 3e-12
-D3: 1e-14
+D2: 1e-11
+D3: 1e-18
 D_TH1: 40
 D_TH2: 170
 D_TH3: 255
@@ -20,8 +20,6 @@ nThreads: 8
 Verbose: 1
 useGPU: 1
 nGPU: 1
-InitCmap: CMAP_00090.csv
-Charge: 1
 TSSD Options:
 POI: 3
 DC_Max: 1e-14

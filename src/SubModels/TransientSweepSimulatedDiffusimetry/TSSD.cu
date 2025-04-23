@@ -112,11 +112,115 @@ int main(int argc, char **argv)
     // Flood-Fill Bottom Start
     FloodFill2D_Bot(&mesh, BC, DC);
 
-    // Remove non-participating media
-
     // Load data to match
 
+    /*
+        Not there yet
+    */
+
     // Simulate 5 minutes at different Diffusion coefficients
+
+    /*
+        Let's simulate using the DC of the first GITT step.
+    */
+
+    // Allocate arrays for holding discretized equations
+
+    double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
+    double *RHS = (double *)malloc(mesh.nElements * sizeof(double));
+    double *Concentration = (double *)malloc(mesh.nElements * sizeof(double));
+
+    double *C0 = (double *)malloc(sizeof(double) * mesh.nElements);
+
+    // initialize the memory
+
+    memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
+    memset(RHS, 0.0, mesh.nElements * sizeof(double));
+    memset(Concentration, 0.0, mesh.nElements * sizeof(double));
+    memset(C0, 0.0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
+
+    // Declare needed arrays
+
+    double *d_Coeff = NULL;
+    double *d_RHS = NULL;
+    double *d_Conc = NULL;
+    double *d_ConcTemp = NULL;
+
+    // Now we confirm that there is a match in GPUs available and user expectations
+
+    if(opts.useGPU)
+    {
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts.nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts.nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts.nGPU = nDevices;
+        }
+
+        // Initialize the GPU arrays
+
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+    }
+
+    // New discretization needed
+    DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+
+    mesh.currentTime = 0;
+
+    int step = 0;
+
+    double timeToCheck = oTSSD.stepSize;
+
+    // save C(y,t)
+
+    saveCyt(&mesh, Concentration, step);
+
+    while(mesh.currentTime <= oTSSD.totalTime)
+    {
+        if (mesh.currentTime != 0)
+        {
+            // coefficient matrix is still good, just update the RHS
+            RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+        }
+
+        if (opts.useGPU == 0)
+        {
+            // CPU Solve
+            omp_set_num_threads(opts.nThreads);
+
+            GS2D_OMP(CoeffMatrix, RHS, Concentration, &opts, &mesh);
+        }
+        else
+        {
+            // GPU Solve
+
+            JI2D_TransientUpdate(RHS, Concentration, d_Coeff,
+                                    d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+        }
+
+
+        // Update time
+        mesh.currentTime+=mesh.dt;
+        
+        // save data if necessary
+        if(mesh.currentTime > timeToCheck)
+        {
+            timeToCheck += oTSSD.stepSize;
+            step++;
+
+            saveCyt(&mesh, Concentration, step);
+            if (opts.verbose)
+                printf("Time = %1.3e\n", mesh.currentTime);
+        }
+    }
 
     // Pick simulations that match the concentration profile by some metric
 
