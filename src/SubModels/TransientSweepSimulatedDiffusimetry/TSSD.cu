@@ -72,8 +72,8 @@ int main(int argc, char **argv)
 
     // set mesh parameters
 
-    mesh.dx = oTSSD.pixelRes / mesh.numCellsX;
-    mesh.dy = oTSSD.pixelRes / mesh.numCellsY;
+    mesh.dx = oTSSD.pixelRes / opts.MeshIncreaseX;
+    mesh.dy = oTSSD.pixelRes / opts.MeshIncreaseY;
 
     // Automatically find dt
 
@@ -89,6 +89,13 @@ int main(int argc, char **argv)
 
     mesh.dt = 10 * mesh.dx*mesh.dx/maxDC;
 
+    if(opts.verbose)
+    {
+        printf("Pixel Res = %1.3e\n", mesh.dx);
+        printf("Mesh DT = %1.3e\n", mesh.dt);
+    }
+        
+
     // Create arrays for BC's and DC's
 
     double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
@@ -102,6 +109,8 @@ int main(int argc, char **argv)
     memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
     SetDC2D(&opts, &mesh, DC, simData);
+
+    free(simData);
 
     // BC Conditions for TSSD Model
 
@@ -249,7 +258,23 @@ int main(int argc, char **argv)
             - Let's use a small domain for this simulation.
     */
 
+    // Manage GPU Memory (if applicable)
 
+    if(opts.useGPU)
+    {
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
+    }
+
+    // Memory management
+
+    free(CoeffMatrix);
+    free(Concentration);
+    free(C0);
+    free(RHS);
+
+    free(BC);
+    free(BC_Value);
+    free(DC);
 
     return 0;
 }

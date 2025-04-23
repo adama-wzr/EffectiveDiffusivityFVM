@@ -304,7 +304,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
     double flux;
 
-    flux = oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+    flux = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
 
     printf("SA: %1.3e m^2, Flux = %1.3e [units?]\n", mesh->SA, flux);
 

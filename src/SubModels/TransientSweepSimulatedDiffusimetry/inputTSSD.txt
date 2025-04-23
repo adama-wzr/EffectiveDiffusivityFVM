@@ -20,6 +20,7 @@ nThreads: 8
 Verbose: 1
 useGPU: 1
 nGPU: 1
+Charge: 1
 TSSD Options:
 POI: 3
 DC_Max: 1e-14
@@ -28,6 +29,6 @@ DC_Step: 5
 C_or_D: 1
 current_density: 5e-3
 startTime: 0
-stepSize: 300
+stepSize: 5
 totalTime: 301
 pixelResolution: 5.4e-8
