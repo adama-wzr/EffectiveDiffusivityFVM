@@ -28,15 +28,15 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     printf("Input image name: %s\n", opts->inputFilename);
     printf("Number of Phases: %d\n", opts->numDC);
     printf("Pixel Resolution: %1.3e\n", oTSSD->pixelRes);
-    for(int i = 0; i < opts->numDC; i++)
+    for (int i = 0; i < opts->numDC; i++)
     {
-        printf("Phase = %d\n", i+1);
+        printf("Phase = %d\n", i + 1);
         printf("Threshold (Upper Bound) = %d\n", opts->DC_TH[i]);
-        if(i == oTSSD->POI - 1)
-            printf("DC[%d] = ???\n", i+1);
+        if (i == oTSSD->POI - 1)
+            printf("DC[%d] = ???\n", i + 1);
         else
         {
-            printf("DC[%d] = %1.3e m^2/s\n", i+1, opts->DC[i]);
+            printf("DC[%d] = %1.3e m^2/s\n", i + 1, opts->DC[i]);
         }
     }
 
@@ -65,11 +65,10 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
         printf("Number of Threads = %d\n", opts->nThreads);
     }
 
-    if(oTSSD->printMAP)
+    if (oTSSD->printMAP)
         printf("Printing CMaps and FMaps\n");
     else
         printf("Not printing maps, only save C(y,t)\n");
-
 
     // TSSD Specific Options
     printf("--------------------------------------------\n\n");
@@ -84,14 +83,14 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     printf("Stop Time: %1.3f (sec)\n", oTSSD->totalTime);
     printf("Save Interval: %1.3f (sec)\n", oTSSD->stepSize);
 
-    if(oTSSD->C_or_D)
+    if (oTSSD->C_or_D)
         printf("Simulating Charge\n");
     else
         printf("Simulating Discharge Step\n");
-    
+
     printf("Current Density: %1.3f A\n", oTSSD->current_density);
 
-    if(oTSSD->D0 == 1)
+    if (oTSSD->D0 == 1)
     {
         printf("Anomalous Diffusion Information not entered.\n");
     }
@@ -200,6 +199,71 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     return;
 }
 
+/*
+
+    Output Handling Functions:
+
+*/
+
+void saveCyt(meshInfo *mesh, double *Concentration, int step)
+{
+    /*
+        Function saveCyt:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to concentration array
+            - interger step
+        Outputs:
+            - none
+
+        The function will simply calculate the average concentration in each column,
+        thus returning the average concentration as function of y at a given time step.
+
+        The output folder is created if it doesn't exist, and the files names
+        are indexed by the simulations save-step number.
+    */
+
+    // folder and file names
+    char foldername[100];
+    char filename[100];
+
+    sprintf(foldername, "OutputCyt");
+    sprintf(filename, "Cyt_%05d.csv", step);
+
+    // check if folder exists
+    if (!std::filesystem::is_directory(foldername) || !std::filesystem::exists(foldername))
+    {
+        // create folder
+        std::filesystem::create_directory(foldername);
+    }
+
+    std::filesystem::path dir(foldername);
+    std::filesystem::path file(filename);
+    std::filesystem::path full_path = dir / file;
+
+    // open file and save cmap
+
+    FILE *OUT;
+
+    OUT = fopen(full_path.generic_string().c_str(), "w");
+
+    fprintf(OUT, "y,Cy\n");
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        double avgC = 0;
+        for (int col = 0; col < mesh->numCellsX; col++)
+        {
+            avgC += Concentration[row * mesh->numCellsX + col];
+        }
+        avgC = (double)avgC / mesh->numCellsX;
+        fprintf(OUT, "%d,%1.3e\n", row, avgC);
+    }
+
+    fclose(OUT);
+
+    return;
+}
 
 /*
 
@@ -219,7 +283,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
             - pointer to BC_Value (BC values)
         Outputs:
             - None.
-        
+
         The function takes user input into account to build the BC setup
         for the TSSD model simulation.
 
@@ -272,14 +336,15 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
     {
         // top
         BC[top * nCols + j] = 2;
-        BC_Value[top *nCols + j] = 0;
+        BC_Value[top * nCols + j] = 0;
 
         // bottom
-        if(oTSSD->C_or_D == 0)
+        if (oTSSD->C_or_D == 0)
         {
             BC[bottom * nCols + j] = 2;
             BC_Value[bottom * nCols + j] = -flux;
-        } else
+        }
+        else
         {
             BC[bottom * nCols + j] = 2;
             BC_Value[bottom * nCols + j] = flux;
@@ -336,7 +401,7 @@ int FloodFill2D_Bot(meshInfo *mesh, int *BC, double *DC)
 
     std::set<coordPair> cList;
 
-    int bot= mesh->numCellsY - 1;
+    int bot = mesh->numCellsY - 1;
 
     for (int col = 0; col < mesh->numCellsX; col++)
     {
