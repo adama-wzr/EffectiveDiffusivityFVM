@@ -265,6 +265,150 @@ void saveCyt(meshInfo *mesh, double *Concentration, int step)
     return;
 }
 
+void printCandF(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, double *C)
+{
+    /*
+        Function printCandF:
+        Inputs:
+            - pointer to options struct
+            - pointer to oTSSD struct
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+            - pointer to Concentration
+        Outputs:
+            - None.
+        
+        Based on simulation data, the concentration and flux distributions will
+        be printed.
+    */
+
+    // Open File
+    FILE *MAP = fopen("sampleMaps.csv", "w+");
+
+    fprintf(MAP, "x,y,C,Jx,Jy\n");
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            // temporary storage
+            int index = row * mesh->numCellsX + col;
+            double Jx, Jy;
+            double J1, J2;  
+
+            // If pore, skip
+
+            if (DC[index] == 0)
+            {
+                fprintf(MAP, "%d,%d,%1.3e,%1.3e,%1.3e\n", col, row, 0.0f , 0.0f, 0.0f);
+                continue;
+            }
+
+            // calc Jx first
+            J1 = 0;
+            J2 = 0;
+            if (col != 0)
+            {
+                if (DC[index - 1] != 0)
+                {
+                    // West exists
+                    J1 = WeightedHarmonicMean(mesh->dx / 2, mesh->dx / 2, DC[index], DC[index - 1]) *
+                         (C[index - 1] - C[index])/mesh->dx;
+                }
+                else
+                {
+                    J1 = 0;
+                }
+            }
+
+            if (col != mesh->numCellsX - 1)
+            {
+                if (DC[index + 1] != 0)
+                {
+                    // West exists
+                    J2 = WeightedHarmonicMean(mesh->dx / 2, mesh->dx / 2, DC[index], DC[index + 1]) *
+                         (C[index] - C[index + 1])/mesh->dx;
+                }
+                else
+                {
+                    J2 = 0;
+                }
+            }
+            
+            // get Jx
+            if(col == 0)
+            {
+                Jx = J2;
+            }
+            else if(col == mesh->numCellsX - 1)
+            {
+                Jx = J1;
+            }
+            else
+            {
+                Jx = (J1 + J2)/2;
+            }
+
+            // Get Jy
+            J1 = 0;
+            J2 = 0;
+
+            if(row !=0)
+            {
+                if(DC[index - mesh->numCellsX] != 0)
+                {
+                    // North Exists
+                    J1 = WeightedHarmonicMean(mesh->dy/2, mesh->dy/2, DC[index], DC[index - mesh->numCellsX]) * 
+                        (C[index] - C[index - mesh->numCellsX])/mesh->dy;
+                }
+                else
+                {
+                    J1 = 0;
+                }
+            }
+
+            if (row != mesh->numCellsY - 1)
+            {
+                if(DC[index + mesh->numCellsX] != 0)
+                {
+                    // North Exists
+                    J2 = WeightedHarmonicMean(mesh->dy/2, mesh->dy/2, DC[index], DC[index + mesh->numCellsX]) * 
+                        (C[index + mesh->numCellsX] - C[index])/mesh->dy;
+                }
+                else
+                {
+                    J2 = 0;
+                }
+            }
+
+            if(row == 0)
+            {
+                Jy = J2;
+            }
+            else if(row == mesh->numCellsY - 1)
+            {
+                J2 = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+                Jy = (J2 + J1)/2;
+            }
+            else
+            {
+                Jy = (J2 + J1)/2;
+            }
+
+            // print
+            fprintf(MAP, "%d,%d,%1.3e,%1.3e,%1.3e\n", col, row, C[index] , Jx, Jy);
+
+
+        } //endfor
+    }
+
+    // close file
+
+    fclose(MAP);
+
+    return;
+}
+
 /*
 
     Boundary conditions for TSSD
@@ -340,12 +484,12 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
         // bottom
         if (oTSSD->C_or_D == 0)
-        {
+        {   // charge
             BC[bottom * nCols + j] = 2;
             BC_Value[bottom * nCols + j] = -flux;
         }
         else
-        {
+        {   // discharge
             BC[bottom * nCols + j] = 2;
             BC_Value[bottom * nCols + j] = flux;
         }

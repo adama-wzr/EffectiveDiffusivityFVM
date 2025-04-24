@@ -15,9 +15,7 @@ Last Updated:
 04/21/2025
 */
 
-
 #include <TSSD.cuh>
-
 
 int main(int argc, char **argv)
 {
@@ -25,12 +23,12 @@ int main(int argc, char **argv)
     options opts;
     TSSDopts oTSSD;
     meshInfo mesh;
-    
+
     // TSSD Input Name
 
     char inputFilename[50];
 
-	sprintf(inputFilename, "inputTSSD.txt");
+    sprintf(inputFilename, "inputTSSD.txt");
 
     // Check if file exists
 
@@ -59,7 +57,7 @@ int main(int argc, char **argv)
 
     // print options
 
-    if(opts.verbose)
+    if (opts.verbose)
         printTSSD(&opts, &oTSSD);
 
     // Pseudo-Code
@@ -79,22 +77,21 @@ int main(int argc, char **argv)
 
     double maxDC = 0;
 
-    for(int i = 0; i <  opts.numDC; i++)
+    for (int i = 0; i < opts.numDC; i++)
     {
-        if(i == 0 && opts.DC[i] != 0)
+        if (i == 0 && opts.DC[i] != 0)
             maxDC = opts.DC[i];
-        else if( opts.DC[i] != 0 && opts.DC[i] > maxDC)
+        else if (opts.DC[i] != 0 && opts.DC[i] > maxDC)
             maxDC = opts.DC[i];
     }
 
-    mesh.dt = 10 * mesh.dx*mesh.dx/maxDC;
+    mesh.dt = 10 * mesh.dx * mesh.dx / maxDC;
 
-    if(opts.verbose)
+    if (opts.verbose)
     {
         printf("Pixel Res = %1.3e\n", mesh.dx);
         printf("Mesh DT = %1.3e\n", mesh.dt);
     }
-        
 
     // Create arrays for BC's and DC's
 
@@ -146,7 +143,13 @@ int main(int argc, char **argv)
     memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
     memset(RHS, 0.0, mesh.nElements * sizeof(double));
     memset(Concentration, 0.0, mesh.nElements * sizeof(double));
-    memset(C0, 0.0, sizeof(double) * mesh.nElements);     // unless we pass a field-function, C0 = 0 is fine
+    memset(C0, 0.0, sizeof(double) * mesh.nElements); // unless we pass a field-function, C0 = 1
+
+    for(int i = 0; i < mesh.nElements; i++)
+    {
+        Concentration[i] = 1e7;
+        C0[i] = 1e7;
+    }
 
     // Declare needed arrays
 
@@ -157,7 +160,7 @@ int main(int argc, char **argv)
 
     // Now we confirm that there is a match in GPUs available and user expectations
 
-    if(opts.useGPU)
+    if (opts.useGPU) 
     {
         int nDevices;
         cudaGetDeviceCount(&nDevices);
@@ -192,7 +195,7 @@ int main(int argc, char **argv)
 
     saveCyt(&mesh, Concentration, step);
 
-    while(mesh.currentTime <= oTSSD.totalTime)
+    while (mesh.currentTime <= oTSSD.totalTime)
     {
         if (mesh.currentTime != 0)
         {
@@ -210,17 +213,26 @@ int main(int argc, char **argv)
         else
         {
             // GPU Solve
-
-            JI2D_TransientUpdate(RHS, Concentration, d_Coeff,
-                                    d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+            if (mesh.currentTime == 0)
+            {
+                JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                         d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+            }
+            else
+            {
+                JI2D_TransientUpdate(RHS, Concentration, d_Coeff,
+                                     d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+            }
         }
 
-
         // Update time
-        mesh.currentTime+=mesh.dt;
-        
+        mesh.currentTime += mesh.dt;
+
+        // Copy new concentration into C0
+        memcpy(C0, Concentration, sizeof(double) * mesh.nElements);
+
         // save data if necessary
-        if(mesh.currentTime > timeToCheck)
+        if (mesh.currentTime > timeToCheck)
         {
             timeToCheck += oTSSD.stepSize;
             step++;
@@ -230,6 +242,8 @@ int main(int argc, char **argv)
                 printf("Time = %1.3e\n", mesh.currentTime);
         }
     }
+
+    printCandF(&opts, &oTSSD, &mesh, DC, Concentration);
 
     // Pick simulations that match the concentration profile by some metric
 
@@ -260,7 +274,7 @@ int main(int argc, char **argv)
 
     // Manage GPU Memory (if applicable)
 
-    if(opts.useGPU)
+    if (opts.useGPU)
     {
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp);
     }
