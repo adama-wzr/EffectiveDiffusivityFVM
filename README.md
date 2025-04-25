@@ -50,6 +50,19 @@ nvcc -std=c++17 -Xcompiler -openmp -arch=sm_XX main.cu
 
 where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`). To verify your compute capability, check here [CUDA GPUs - Compute Capability](https://developer.nvidia.com/cuda-gpus).
 
+**New Function Added:** I am in the process of refactoring the code as we make progress towards a more modular package. Therefore, some of the new code development is made as part of submodules to the main source code. The compilation of the main code did not change! For the new code, use the cmake file to build it.
+
+While VisualStudio is recommended for building on Windows, if you do chose to build from the command line use the following:
+
+1. Create a new folder, preferably titled `build`, and open the terminal from this folder.
+2. Run `cmake ..` inside the folder.
+3. Run `cmake --build . --config Release` inside the folder.
+4. On Windows, this will create a folder `Release` with the executables inside.
+5. On Linux, this should just create the executables in the build folder.
+
+
+Some of the refactoring is still roughly incomplete, and lacking proper documentation. This is intentinal: updates to the documentation and official tested capabilities will always accompany publications. If you want to use the package in the meanwhile, please reach out to Andre Adam or Dr. Xianglin Li, whose contant information are included in the [Authors](#code-authors) section.
+
 ## Required Files
 
 All these files have to be in the same folder (or in the path for compilation/run).
