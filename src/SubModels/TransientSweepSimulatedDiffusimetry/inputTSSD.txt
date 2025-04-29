@@ -29,6 +29,6 @@ DC_Step: 5
 C_or_D: 1
 current_density: 5e-3
 startTime: 0
-stepSize: 5
+stepSize: 20
 totalTime: 301
 pixelResolution: 5.4e-8

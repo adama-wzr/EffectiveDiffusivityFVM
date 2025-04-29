@@ -85,7 +85,7 @@ int main(int argc, char **argv)
             maxDC = opts.DC[i];
     }
 
-    mesh.dt = 10 * mesh.dx * mesh.dx / maxDC;
+    mesh.dt = 20 * mesh.dx * mesh.dx / maxDC;
 
     if (opts.verbose)
     {
@@ -147,8 +147,10 @@ int main(int argc, char **argv)
 
     for(int i = 0; i < mesh.nElements; i++)
     {
-        Concentration[i] = 1e7;
-        C0[i] = 1e7;
+        if (DC[i] == 0)
+            continue;
+        Concentration[i] = 100;
+        C0[i] = 100;
     }
 
     // Declare needed arrays

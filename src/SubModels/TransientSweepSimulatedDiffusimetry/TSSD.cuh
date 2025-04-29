@@ -248,15 +248,19 @@ void saveCyt(meshInfo *mesh, double *Concentration, int step)
     OUT = fopen(full_path.generic_string().c_str(), "w");
 
     fprintf(OUT, "y,Cy\n");
+    long int count = 0;
 
     for (int row = 0; row < mesh->numCellsY; row++)
     {
         double avgC = 0;
         for (int col = 0; col < mesh->numCellsX; col++)
         {
+            if (Concentration[row * mesh->numCellsX + col] == 0)
+                continue;
+            count++;
             avgC += Concentration[row * mesh->numCellsX + col];
         }
-        avgC = (double)avgC / mesh->numCellsX;
+        avgC = (double)avgC / count;
         fprintf(OUT, "%d,%1.3e\n", row, avgC);
     }
 
@@ -448,7 +452,9 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
     double flux;
 
-    flux = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+    double volume = 3.1415 * 100e-06 * pow(0.004,2)/4.0;
+
+    flux = mesh->dt * oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 2)) * volume * opts->charge * FARADAY);
 
     printf("SA: %1.3e m^2, Flux = %1.3e [units?]\n", mesh->SA, flux);
 
