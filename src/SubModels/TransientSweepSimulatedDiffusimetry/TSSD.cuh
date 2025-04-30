@@ -454,9 +454,10 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
     double volume = 3.1415 * 100e-06 * pow(0.004,2)/4.0;
 
+    // flux units = mol m^-2 s^-1
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
 
-    printf("SA: %1.3e m^2, Flux = %1.3e [units?]\n", mesh->SA, flux);
+    printf("SA: %1.3e m^2, Flux = %1.3e [units?]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
 
     int right, left, top, bottom;
     // set col values for right and left
