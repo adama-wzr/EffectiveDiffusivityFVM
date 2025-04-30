@@ -149,8 +149,8 @@ int main(int argc, char **argv)
     {
         if (DC[i] == 0)
             continue;
-        Concentration[i] = 10000;
-        C0[i] = 10000;
+        Concentration[i] = 1;
+        C0[i] = 1;
     }
 
     // Declare needed arrays
