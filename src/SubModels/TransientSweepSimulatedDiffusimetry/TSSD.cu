@@ -99,15 +99,35 @@ int main(int argc, char **argv)
     int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
+    double *GITT_D;
+    double *GITT_SOC;
+    int nData = 100;    // just a hardcoded default, assuming I don't have more than 100 GITT points
+
+    if (oTSSD.useGITT)
+    {
+        GITT_D = (double *)malloc(sizeof(double) * nData);
+        GITT_SOC = (double *)malloc(sizeof(double) * nData);
+        GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
+        for(int i = 0; i < nData; i++)
+        {
+            printf("%2.1lf, %3.1lf\n", GITT_SOC[i], GITT_D[i]);
+        }
+    }
+
+    return 0;
+
     // initialize arrays
 
     memset(DC, 0, sizeof(double) * mesh.nElements);
     memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
-    SetDC2D(&opts, &mesh, DC, simData);
-
-    free(simData);
+    if (oTSSD.useGITT == 0)
+        SetDC2D(&opts, &mesh, DC, simData);
+    else
+        // SetDC_GITT;
+    
+    // free(simData);
 
     // BC Conditions for TSSD Model
 

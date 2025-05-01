@@ -100,6 +100,12 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
         printf("CMax: %1.3e mol/m^3\n", oTSSD->CMax);
     }
 
+    if(oTSSD->useGITT)
+    {
+        printf("Reading GITT Results.\n");
+        printf("GITT File Name: %s\n", oTSSD->GITT_Name);
+    }
+
     return;
 }
 
@@ -138,6 +144,9 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->CMax = 1e15;
     oTSSD->DC_Min = 1e-15; // m^2/s
     oTSSD->DC_Max = 1e-10; // m^2/s
+    oTSSD->useGITT = 0;
+
+    oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
     /*
     --------------------------------------------------------------------------------
@@ -194,6 +203,15 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         else if (strcmp(tempC, "printMaps:") == 0)
         {
             oTSSD->printMAP = (int)tempD;
+        }
+        else if(strcmp(tempC, "useGITT:") == 0)
+        {
+            oTSSD->useGITT = (int)tempD;
+        }
+        else if (strcmp(tempC, "GITT_File:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(oTSSD->GITT_Name, tempFilenames);
         }
     }
     return;
@@ -679,6 +697,74 @@ int FloodFill2D_Bot(meshInfo *mesh, int *BC, double *DC)
 
     // memory management
     free(Domain);
+
+    return 0;
+}
+
+/*
+
+    GITT Related Material:
+
+*/
+
+int GITT_Interval(TSSDopts *oTSSD, double *SOC, double *GITT_D, int *nData)
+{
+    /*
+        Function GITT_Interval:
+        Inputs:
+            - options TSSD, for file name
+            - SOC is pointer to pre-allocated array that will hold
+                the SOC (or DoD) steps
+            - GITT_D will hold the diffusion according to GITT, array
+                is pre-allocated
+            - pointer to nData: gives amount of data pre-allocated (for
+                error checking), and then stores the new amount after reading.
+        Outputs:
+            - none.
+        
+        Function will read the GITT results, and store them for usage later on.
+    */
+
+    // open file, start reading
+
+    FILE *target_data;
+
+    target_data = fopen(oTSSD->GITT_Name, "r");
+
+    // check if file exists
+
+    if (target_data == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    // read header
+
+    char header1[20];
+    char header2[20];
+
+    fscanf(target_data, "%s,%s,", &header1[0], &header2[0]);
+
+    printf("Debug Header = %s %s\n", header1, header2);
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%lf,%lf", &SOC[count], &GITT_D[count]) == 2)
+    {
+        count++;
+        if (count > *nData)
+        {
+            printf("Not Enough Space Allocated. Exiting...\n");
+            return 1;
+        }
+    }
+
+    // update the number of data
+    *nData = (int) count;
+
+    // close the file
+    fclose(target_data);
 
     return 0;
 }
