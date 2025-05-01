@@ -3904,7 +3904,8 @@ int RHS_Update2D(meshInfo   *mesh,
         else if (BC[BC_index + (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] += dx * dy * BC_Value[BC_index + (nCols + 2)];
+            // RHS[i] += dx * dy * BC_Value[BC_index + (nCols + 2)];
+            RHS[i] += BC_Value[BC_index + (nCols + 2)] * (dx);
         }
 
         // North
@@ -3917,7 +3918,7 @@ int RHS_Update2D(meshInfo   *mesh,
         else if (BC[BC_index - (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] += dx * dy * BC_Value[BC_index - (nCols + 2)];
+            RHS[i] += BC_Value[BC_index - (nCols + 2)] * (dx);
         }
 
         // last contribution is ap
@@ -4092,7 +4093,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index + (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] += dt * BC_Value[BC_index + (nCols + 2)] * (dx);
+            RHS[i] += BC_Value[BC_index + (nCols + 2)] * (dx);
         }
 
         // North
@@ -4116,7 +4117,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index - (nCols + 2)] == 2)
         {
             // Flux BC (Neumann)
-            RHS[i] -= dt * BC_Value[BC_index - (nCols + 2)] * (dx);
+            RHS[i] -= BC_Value[BC_index - (nCols + 2)] * (dx);
         }
 
         // P Contribution from previous time-step
