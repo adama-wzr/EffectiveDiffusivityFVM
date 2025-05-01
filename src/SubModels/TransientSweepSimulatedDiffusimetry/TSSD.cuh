@@ -452,11 +452,14 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
     double flux;
 
+    // volume of the sample is hard-coded, consider making this an input
     double volume = 3.1415 * 100e-06 * pow(0.004,2)/4.0;
+    // convert current density to current
     oTSSD->current_density = oTSSD->current_density * 3.1415 * pow(0.004,2)/4.0;
     // flux units = mol m^-2 s^-1
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
 
+    printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
     printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
 
     int right, left, top, bottom;

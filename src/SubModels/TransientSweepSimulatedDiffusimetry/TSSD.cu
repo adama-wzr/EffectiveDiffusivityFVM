@@ -149,8 +149,8 @@ int main(int argc, char **argv)
     {
         if (DC[i] == 0)
             continue;
-        Concentration[i] = 1;
-        C0[i] = 1;
+        Concentration[i] = 1.65;    // mol/m^3
+        C0[i] = 1.65;               // mol/m^3
     }
 
     // Declare needed arrays
