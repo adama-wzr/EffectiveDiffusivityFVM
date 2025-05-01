@@ -4,7 +4,7 @@ inputType: 2
 numDC: 3
 D1: 0
 D2: 1e-11
-D3: 1e-18
+D3: 1e-15
 D_TH1: 40
 D_TH2: 170
 D_TH3: 255
@@ -15,7 +15,7 @@ Convergence: 1e-4
 MaxIter: 1e6
 CL: 0
 CR: 1
-InputName: Cycled_MC811_3phase.jpg
+InputName: MC811_Stack.jpg
 nThreads: 8
 Verbose: 1
 useGPU: 1
@@ -26,9 +26,11 @@ POI: 3
 DC_Max: 1e-14
 DC_Min: 1e-18
 DC_Step: 5
-C_or_D: 1
+C_or_D: 0
 current_density: 5e-3
 startTime: 0
-stepSize: 20
-totalTime: 301
-pixelResolution: 5.4e-8
+stepSize: 300
+totalTime: 9301
+pixelResolution: 2.16e-7
+useGITT: 1
+GITT_File: test.csv
