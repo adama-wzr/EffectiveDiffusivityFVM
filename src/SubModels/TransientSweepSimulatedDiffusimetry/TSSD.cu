@@ -224,7 +224,7 @@ int main(int argc, char **argv)
         if(oTSSD.useGITT)
         {
             SOC = mesh.currentTime / oTSSD.totalTime * 100;
-            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx] != 0 && GITT_idx < nData)
+            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx] != 0 && GITT_D[GITT_idx + 1] != 0)
             {
                 // update DC
                 GITT_idx++;
