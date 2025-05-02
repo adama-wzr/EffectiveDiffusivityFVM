@@ -111,6 +111,7 @@ int main(int argc, char **argv)
         //  set memory
         memset(GITT_D, 0, sizeof(double) * nData);
         memset(GITT_SOC, 0, sizeof(double) * nData);
+        // 
         GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
     }
 
@@ -228,7 +229,7 @@ int main(int argc, char **argv)
         if(oTSSD.useGITT)
         {
             SOC = mesh.currentTime / oTSSD.totalTime * 100;
-            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx] != 0 && GITT_D[GITT_idx + 1] != 0)
+            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx + 1] != 0 && GITT_D[GITT_idx + 1] != 0)
             {
                 // update DC
                 GITT_idx++;
