@@ -22,7 +22,7 @@ useGPU: 1
 nGPU: 1
 Charge: 1
 TSSD Options:
-POI: 3
+POI: 2
 DC_Max: 1e-14
 DC_Min: 1e-18
 DC_Step: 5

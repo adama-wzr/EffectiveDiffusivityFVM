@@ -769,4 +769,44 @@ int GITT_Interval(TSSDopts *oTSSD, double *SOC, double *GITT_D, int *nData)
     return 0;
 }
 
+void SetDC_GITT(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char *simData, double POI_DC)
+{
+    /*
+    
+        Function SetDC_GITT:
+        Input:
+            - pointer to options struct, with general user input options
+            - oTSSD is a pointer to the data struct holding TSSD input data
+            - pointer to the mesh array
+            - pointer to diffusion coefficient array
+            - pointer to simData
+            - value of diffusion coefficient to be used for POI
+        Output:
+            - none
+        
+        Function will modify the DC-array to hold the proper DC according 
+        to GITT for the POI.
+    */
+
+    // iterate over simData
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            int localPhase = simData[row * mesh->numCellsX + col];
+            if(localPhase != oTSSD->POI)
+            {
+                DC[row * mesh->numCellsX + col] = opts->DC[localPhase];
+            }
+            else
+            {
+                DC[row * mesh->numCellsX + col] = POI_DC;
+            }
+        }
+    }
+
+    return;
+}
+
 #endif

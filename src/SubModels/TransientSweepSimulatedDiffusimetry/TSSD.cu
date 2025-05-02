@@ -108,13 +108,7 @@ int main(int argc, char **argv)
         GITT_D = (double *)malloc(sizeof(double) * nData);
         GITT_SOC = (double *)malloc(sizeof(double) * nData);
         GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
-        for(int i = 0; i < nData; i++)
-        {
-            printf("%2.1lf, %3.1lf\n", GITT_SOC[i], GITT_D[i]);
-        }
     }
-
-    return 0;
 
     // initialize arrays
 
@@ -122,12 +116,19 @@ int main(int argc, char **argv)
     memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
+    // start an array for SOC
+
+    double SOC = 0;
+    int GITT_idx = 0;
+    double POI_DC = 0;
+
     if (oTSSD.useGITT == 0)
         SetDC2D(&opts, &mesh, DC, simData);
     else
-        // SetDC_GITT;
-    
-    // free(simData);
+    {
+        POI_DC = GITT_D[GITT_idx];
+        SetDC_GITT(&opts, &oTSSD, &mesh, DC, simData, POI_DC);
+    }
 
     // BC Conditions for TSSD Model
 
@@ -219,11 +220,36 @@ int main(int argc, char **argv)
 
     while (mesh.currentTime <= oTSSD.totalTime)
     {
-        if (mesh.currentTime != 0)
+        // if using GITT data, check for updates to DC
+        if(oTSSD.useGITT)
         {
-            // coefficient matrix is still good, just update the RHS
-            RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            SOC = mesh.currentTime / oTSSD.totalTime * 100;
+            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx] != 0)
+            {
+                // update DC
+                GITT_idx++;
+                POI_DC = GITT_D[GITT_idx];
+                SetDC_GITT(&opts, &oTSSD, &mesh, DC, simData, POI_DC);
+                // discretize system again
+                DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+                printf("Updated DC: %1.3e, Time = %1.3e, SOC = %1.3e\n", POI_DC, mesh.currentTime, SOC);
+            }
+            else if(mesh.currentTime != 0)
+            {
+                // no DC update, only update RHS
+                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            }
         }
+        else
+        {
+            // no using GITT data
+            if (mesh.currentTime != 0)
+            {
+                // coefficient matrix is still good, just update the RHS
+                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            }
+        }
+
 
         if (opts.useGPU == 0)
         {
