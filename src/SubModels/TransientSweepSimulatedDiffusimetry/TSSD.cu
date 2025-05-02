@@ -105,8 +105,12 @@ int main(int argc, char **argv)
 
     if (oTSSD.useGITT)
     {
+        // create space for arrays
         GITT_D = (double *)malloc(sizeof(double) * nData);
         GITT_SOC = (double *)malloc(sizeof(double) * nData);
+        //  set memory
+        memset(GITT_D, 0, sizeof(double) * nData);
+        memset(GITT_SOC, 0, sizeof(double) * nData);
         GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
     }
 
