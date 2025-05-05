@@ -32,5 +32,6 @@ startTime: 0
 stepSize: 300
 totalTime: 9301
 pixelResolution: 2.16e-7
-useGITT: 1
+useGITT: 0
 GITT_File: test.csv
+Linear: 1

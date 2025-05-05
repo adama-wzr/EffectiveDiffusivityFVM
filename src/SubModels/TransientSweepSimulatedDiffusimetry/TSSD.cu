@@ -60,7 +60,6 @@ int main(int argc, char **argv)
     if (opts.verbose)
         printTSSD(&opts, &oTSSD);
 
-    // Pseudo-Code
 
     // Load image to simulate
 
@@ -93,6 +92,14 @@ int main(int argc, char **argv)
         printf("Mesh DT = %1.3e\n", mesh.dt);
     }
 
+    // if oTSSD.GITT and oTSSD.useLinear are both true, end the code here
+
+    if(oTSSD.useGITT && oTSSD.useLinear)
+    {
+        printf("Multiple models selected, returning...\n");
+        return 1;
+    }
+
     // Create arrays for BC's and DC's
 
     double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
@@ -111,7 +118,7 @@ int main(int argc, char **argv)
         //  set memory
         memset(GITT_D, 0, sizeof(double) * nData);
         memset(GITT_SOC, 0, sizeof(double) * nData);
-        // 
+        // read GITT data
         GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
     }
 
@@ -150,12 +157,6 @@ int main(int argc, char **argv)
         Not there yet
     */
 
-    // Simulate 5 minutes at different Diffusion coefficients
-
-    /*
-        Let's simulate using the DC of the first GITT step.
-    */
-
     // Allocate arrays for holding discretized equations
 
     double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
@@ -177,6 +178,13 @@ int main(int argc, char **argv)
             continue;
         Concentration[i] = 1.65;    // mol/m^3
         C0[i] = 1.65;               // mol/m^3
+    }
+    
+    // if using linear model, update
+
+    if(oTSSD.useLinear)
+    {
+        SetDC_Linear(&opts, &oTSSD, &mesh, DC, simData, Concentration);
     }
 
     // Declare needed arrays
@@ -244,6 +252,13 @@ int main(int argc, char **argv)
                 // no DC update, only update RHS
                 RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
             }
+        } 
+        else if(oTSSD.useLinear)
+        {
+            // update diffusion coefficients
+            SetDC_Linear(&opts, &oTSSD, &mesh, DC, simData, Concentration);
+            // discretize system again
+            DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
         }
         else
         {

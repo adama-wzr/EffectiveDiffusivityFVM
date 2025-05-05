@@ -106,6 +106,11 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
         printf("GITT File Name: %s\n", oTSSD->GITT_Name);
     }
 
+    if(oTSSD->useLinear)
+    {
+        printf("Using Linear DC-to-C correlation.\n");
+    }
+
     return;
 }
 
@@ -145,6 +150,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->DC_Min = 1e-15; // m^2/s
     oTSSD->DC_Max = 1e-10; // m^2/s
     oTSSD->useGITT = 0;
+    oTSSD->useLinear = 0;
 
     oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
@@ -212,6 +218,10 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         {
             sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
             strcpy(oTSSD->GITT_Name, tempFilenames);
+        }
+        else if(strcmp(tempC, "Linear:") == 0)
+        {
+            oTSSD->useLinear = (int)tempD;
         }
     }
     return;
@@ -767,6 +777,51 @@ int GITT_Interval(TSSDopts *oTSSD, double *SOC, double *GITT_D, int *nData)
     fclose(target_data);
 
     return 0;
+}
+
+void SetDC_Linear(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char *simData, double *C)
+{
+    /*
+        Function SetDC_Linear:
+        Inputs:
+            - pointer to options struct
+            - pointer to TSSD options
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+            - pointer to simData (phase labels)
+            - pointer to concentration array
+        Outputs:
+            - none
+        
+        Diffusion coefficients are set based on the current concentration,
+        therefore diffusion coefficient is dependent on concentration
+        ONLY FOR THE POI.
+    */
+
+    // hardcoded values (empirically derived by neutron + GITT)
+    
+    double a = 2.1727e-13;
+    double b = -2.9780e-13;
+
+    // iterate over the whole domain
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            int localPhase = simData[row * mesh->numCellsX + col];
+            if(localPhase != oTSSD->POI)
+            {
+                DC[row * mesh->numCellsX + col] = opts->DC[localPhase];
+            }
+            else
+            {
+                DC[row * mesh->numCellsX + col] = a * C[row * mesh->numCellsX + col] + b;
+            }
+        }
+    }
+
+    return;
 }
 
 void SetDC_GITT(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char *simData, double POI_DC)

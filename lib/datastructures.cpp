@@ -21,6 +21,7 @@ typedef struct
     double pixelRes;        // pixel resolution in m
     int useGITT;            // flag to use or not GITT (0 = false, 1 = true)
     char* GITT_Name;        // GITT file name
+    int useLinear;          // Linear model for diffusion update as function of concentration
 } TSSDopts;
 
 #endif
