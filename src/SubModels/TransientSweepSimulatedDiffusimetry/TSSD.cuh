@@ -111,6 +111,13 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
         printf("Using Linear DC-to-C correlation.\n");
     }
 
+    if(oTSSD->useAnom)
+    {
+        printf("Using Anomalous Diffusion Model\n");
+        printf("Cmax: %1.3e [mol/m3]\n", oTSSD->CMax);
+        printf("D': %1.3e [m^2/s]\n", oTSSD->Dprime);
+    }
+
     return;
 }
 
@@ -151,6 +158,8 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->DC_Max = 1e-10; // m^2/s
     oTSSD->useGITT = 0;
     oTSSD->useLinear = 0;
+    oTSSD->useAnom = 0;
+    oTSSD->Dprime = 0;
 
     oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
@@ -223,6 +232,19 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         {
             oTSSD->useLinear = (int)tempD;
         }
+        else if(strcmp(tempC, "Anomalous:") == 0)
+        {
+            oTSSD->useAnom = (int)tempD;
+        }
+        else if (strcmp(tempC, "CMax:") == 0)
+        {
+            oTSSD->CMax = tempD;
+        }
+        else if (strcmp(tempC, "Dprime:") == 0)
+        {
+            oTSSD->Dprime = tempD;
+        }
+
     }
     return;
 }

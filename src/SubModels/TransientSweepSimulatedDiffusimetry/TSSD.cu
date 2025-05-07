@@ -92,9 +92,9 @@ int main(int argc, char **argv)
         printf("Mesh DT = %1.3e\n", mesh.dt);
     }
 
-    // if oTSSD.GITT and oTSSD.useLinear are both true, end the code here
+    // if multiple methods are selected, just return an error
 
-    if(oTSSD.useGITT && oTSSD.useLinear)
+    if(oTSSD.useGITT + oTSSD.useLinear + oTSSD.useAnom > 1)
     {
         printf("Multiple models selected, returning...\n");
         return 1;
