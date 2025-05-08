@@ -4348,6 +4348,11 @@ int JI2D_SOR(double     *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
+        if (opts->SteadyStateFlag && iterCount %  100000)
+        {
+            printf("Iter %ld, Conv %1.3e, Target %1.3e\n", iterCount, pctChange, opts->ConvergeCriteria);
+        }
+
         // update d_Conc = d_ConcTemp
 
         CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
