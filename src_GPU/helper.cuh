@@ -4348,7 +4348,7 @@ int JI2D_SOR(double     *Coeff,
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
         }
 
-        if (opts->SteadyStateFlag && iterCount %  100000)
+        if (opts->SteadyStateFlag && iterCount %  100000 == 0)
         {
             printf("Iter %ld, Conv %1.3e, Target %1.3e\n", iterCount, pctChange, opts->ConvergeCriteria);
         }
