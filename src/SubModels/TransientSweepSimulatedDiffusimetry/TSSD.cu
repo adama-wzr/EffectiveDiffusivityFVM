@@ -12,7 +12,7 @@ Andre Adam.
 
 Last Updated:
 
-04/21/2025
+05/13/2025
 */
 
 #include <TSSD.cuh>
@@ -170,14 +170,14 @@ int main(int argc, char **argv)
     memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
     memset(RHS, 0.0, mesh.nElements * sizeof(double));
     memset(Concentration, 0.0, mesh.nElements * sizeof(double));
-    memset(C0, 0.0, sizeof(double) * mesh.nElements); // unless we pass a field-function, C0 = 1
+    memset(C0, 0.0, sizeof(double) * mesh.nElements);
 
     for(int i = 0; i < mesh.nElements; i++)
     {
         if (DC[i] == 0)
             continue;
-        Concentration[i] = 1.65;    // mol/m^3
-        C0[i] = 1.65;               // mol/m^3
+        Concentration[i] = oTSSD.C0;    // mol/m^3
+        C0[i] = oTSSD.C0;               // mol/m^3
     }
     
     // if using linear model, update

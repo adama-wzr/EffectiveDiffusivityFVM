@@ -83,6 +83,8 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     printf("Stop Time: %1.3f (sec)\n", oTSSD->totalTime);
     printf("Save Interval: %1.3f (sec)\n", oTSSD->stepSize);
 
+    printf("Initial Concentration: %1.3e mol/m^3\n", oTSSD->C0);
+
     if (oTSSD->C_or_D)
         printf("Simulating Charge\n");
     else
@@ -160,6 +162,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->useLinear = 0;
     oTSSD->useAnom = 0;
     oTSSD->Dprime = 0;
+    oTSSD->C0 = 1.0;
 
     oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
@@ -243,6 +246,10 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         else if (strcmp(tempC, "Dprime:") == 0)
         {
             oTSSD->Dprime = tempD;
+        }
+        else if(strcmp(tempC, "C0:") == 0)
+        {
+            oTSSD->C0 = tempD;
         }
 
     }

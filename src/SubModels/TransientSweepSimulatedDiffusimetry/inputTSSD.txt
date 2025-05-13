@@ -38,3 +38,4 @@ Linear: 1
 Anomalous: 0
 Cmax: 0
 Dprime: 1e-10
+C0: 30850
