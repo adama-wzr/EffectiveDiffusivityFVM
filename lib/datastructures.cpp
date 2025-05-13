@@ -24,6 +24,7 @@ typedef struct
     int useLinear;          // Linear model for diffusion update as function of concentration
     int useAnom;            // use theory of anomalous diffusion
     double Dprime;          // anomalous diffusion parameter
+    double C0;              // initial concentration
 } TSSDopts;
 
 #endif
