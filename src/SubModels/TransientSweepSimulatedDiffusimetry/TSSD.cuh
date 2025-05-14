@@ -162,7 +162,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->useLinear = 0;
     oTSSD->useAnom = 0;
     oTSSD->Dprime = 0;
-    oTSSD->C0 = 1.0;
+    oTSSD->C0 = 1.65;
 
     oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
