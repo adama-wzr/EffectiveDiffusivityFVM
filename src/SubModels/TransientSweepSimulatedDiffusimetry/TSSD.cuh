@@ -310,6 +310,7 @@ void saveCyt(meshInfo *mesh, double *Concentration, int step)
     for (int row = 0; row < mesh->numCellsY; row++)
     {
         double avgC = 0;
+        count = 0;
         for (int col = 0; col < mesh->numCellsX; col++)
         {
             if (Concentration[row * mesh->numCellsX + col] == 0)
@@ -515,6 +516,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
     oTSSD->current_density = oTSSD->current_density * 3.1415 * pow(0.004,2)/4.0;
     // flux units = mol m^-2 s^-1
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
+    flux = 2.8599e-05;
 
     printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
     printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
