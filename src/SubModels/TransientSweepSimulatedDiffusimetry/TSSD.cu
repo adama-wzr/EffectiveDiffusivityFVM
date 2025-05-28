@@ -179,6 +179,13 @@ int main(int argc, char **argv)
         Concentration[i] = oTSSD.C0;    // mol/m^3
         C0[i] = oTSSD.C0;               // mol/m^3
     }
+
+    if(oTSSD.useAnom)
+    {
+        // populate DC array
+        setDC_AnomDiff(&oTSSD, &mesh, DC, Concentration, simData);
+    }
+
     
     // if using linear model, update
 
@@ -258,6 +265,13 @@ int main(int argc, char **argv)
             // update diffusion coefficients
             SetDC_Linear(&opts, &oTSSD, &mesh, DC, simData, Concentration);
             // discretize system again
+            DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+        }
+        else if(oTSSD.useAnom)
+        {
+            // update DC and discretize again
+            setDC_AnomDiff(&oTSSD, &mesh, DC, Concentration, simData);
+
             DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
         }
         else

@@ -895,4 +895,47 @@ void SetDC_GITT(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char
     return;
 }
 
+int setDC_AnomDiff(TSSDopts *oTSSD, meshInfo *mesh, double *DC, double *C, char *simData)
+{
+    /*
+        Function setDC_AnomDiff:
+        Inputs:
+            - pointer to TSSD opts
+            - pointer to mesh info
+            - pointer to DC array
+            - pointer to Concentration array
+            - pointer to simData array (phase info)
+        Outputs:
+            - None
+        
+        Function will use user entered information along with the concentration array
+        to provide the diffusion coefficient of the POI according to the theory of
+        anomalous diffusion:
+
+        D = D'(Cmax + C)/(Cmax - C)
+
+        where D' and Cmax are entered by the user, C is using the calculated concentration.
+
+        The function returns false if Cmax - C ~ 0
+    */
+
+    
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        // get local phase
+        int localPhase = simData[i];
+        
+        // check if not active material, increment
+        if(localPhase != oTSSD->POI)
+            continue;
+        // check for NaN potential
+        if (oTSSD->CMax >= C[i])
+            return 1;
+
+        DC[i] = oTSSD->Dprime*(C[i] + oTSSD->CMax)/(oTSSD->CMax - C[i]);
+    }
+    
+    return 0;
+}
+
 #endif
