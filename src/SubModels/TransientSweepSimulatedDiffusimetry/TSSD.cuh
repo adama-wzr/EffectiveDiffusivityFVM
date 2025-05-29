@@ -919,7 +919,6 @@ int setDC_AnomDiff(TSSDopts *oTSSD, meshInfo *mesh, double *DC, double *C, char 
         The function returns false if Cmax - C ~ 0
     */
 
-    
     for (int i = 0; i < mesh->nElements; i++)
     {
         // get local phase
@@ -929,7 +928,7 @@ int setDC_AnomDiff(TSSDopts *oTSSD, meshInfo *mesh, double *DC, double *C, char 
         if(localPhase != oTSSD->POI)
             continue;
         // check for NaN potential
-        if (oTSSD->CMax >= C[i])
+        if (oTSSD->CMax <= C[i])
             return 1;
 
         DC[i] = oTSSD->Dprime*(C[i] + oTSSD->CMax)/(oTSSD->CMax - C[i]);
