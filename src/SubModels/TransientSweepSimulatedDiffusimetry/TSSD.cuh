@@ -83,6 +83,8 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     printf("Stop Time: %1.3f (sec)\n", oTSSD->totalTime);
     printf("Save Interval: %1.3f (sec)\n", oTSSD->stepSize);
 
+    printf("Initial Concentration: %1.3e mol/m^3\n", oTSSD->C0);
+
     if (oTSSD->C_or_D)
         printf("Simulating Charge\n");
     else
@@ -98,6 +100,24 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
     {
         printf("Trace Species Diffusion: %1.3e m^2/s\n", oTSSD->D0);
         printf("CMax: %1.3e mol/m^3\n", oTSSD->CMax);
+    }
+
+    if(oTSSD->useGITT)
+    {
+        printf("Reading GITT Results.\n");
+        printf("GITT File Name: %s\n", oTSSD->GITT_Name);
+    }
+
+    if(oTSSD->useLinear)
+    {
+        printf("Using Linear DC-to-C correlation.\n");
+    }
+
+    if(oTSSD->useAnom)
+    {
+        printf("Using Anomalous Diffusion Model\n");
+        printf("Cmax: %1.3e [mol/m3]\n", oTSSD->CMax);
+        printf("D': %1.3e [m^2/s]\n", oTSSD->Dprime);
     }
 
     return;
@@ -138,6 +158,13 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->CMax = 1e15;
     oTSSD->DC_Min = 1e-15; // m^2/s
     oTSSD->DC_Max = 1e-10; // m^2/s
+    oTSSD->useGITT = 0;
+    oTSSD->useLinear = 0;
+    oTSSD->useAnom = 0;
+    oTSSD->Dprime = 0;
+    oTSSD->C0 = 1.65;
+
+    oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
     /*
     --------------------------------------------------------------------------------
@@ -195,6 +222,36 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         {
             oTSSD->printMAP = (int)tempD;
         }
+        else if(strcmp(tempC, "useGITT:") == 0)
+        {
+            oTSSD->useGITT = (int)tempD;
+        }
+        else if (strcmp(tempC, "GITT_File:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(oTSSD->GITT_Name, tempFilenames);
+        }
+        else if(strcmp(tempC, "Linear:") == 0)
+        {
+            oTSSD->useLinear = (int)tempD;
+        }
+        else if(strcmp(tempC, "Anomalous:") == 0)
+        {
+            oTSSD->useAnom = (int)tempD;
+        }
+        else if (strcmp(tempC, "CMax:") == 0)
+        {
+            oTSSD->CMax = tempD;
+        }
+        else if (strcmp(tempC, "Dprime:") == 0)
+        {
+            oTSSD->Dprime = tempD;
+        }
+        else if(strcmp(tempC, "C0:") == 0)
+        {
+            oTSSD->C0 = tempD;
+        }
+
     }
     return;
 }
@@ -253,6 +310,7 @@ void saveCyt(meshInfo *mesh, double *Concentration, int step)
     for (int row = 0; row < mesh->numCellsY; row++)
     {
         double avgC = 0;
+        count = 0;
         for (int col = 0; col < mesh->numCellsX; col++)
         {
             if (Concentration[row * mesh->numCellsX + col] == 0)
@@ -458,6 +516,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
     oTSSD->current_density = oTSSD->current_density * 3.1415 * pow(0.004,2)/4.0;
     // flux units = mol m^-2 s^-1
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
+    flux = 2*2.8599e-05;
 
     printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
     printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
@@ -680,6 +739,201 @@ int FloodFill2D_Bot(meshInfo *mesh, int *BC, double *DC)
     // memory management
     free(Domain);
 
+    return 0;
+}
+
+/*
+
+    GITT Related Material:
+
+*/
+
+int GITT_Interval(TSSDopts *oTSSD, double *SOC, double *GITT_D, int *nData)
+{
+    /*
+        Function GITT_Interval:
+        Inputs:
+            - options TSSD, for file name
+            - SOC is pointer to pre-allocated array that will hold
+                the SOC (or DoD) steps
+            - GITT_D will hold the diffusion according to GITT, array
+                is pre-allocated
+            - pointer to nData: gives amount of data pre-allocated (for
+                error checking), and then stores the new amount after reading.
+        Outputs:
+            - none.
+        
+        Function will read the GITT results, and store them for usage later on.
+    */
+
+    // open file, start reading
+
+    FILE *target_data;
+
+    target_data = fopen(oTSSD->GITT_Name, "r");
+
+    // check if file exists
+
+    if (target_data == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    // read header
+
+    char header1[20];
+    char header2[20];
+
+    fscanf(target_data, "%s,%s,", &header1[0], &header2[0]);
+
+    printf("Debug Header = %s %s\n", header1, header2);
+
+    size_t count = 0;
+
+    while (fscanf(target_data, "%lf,%lf", &SOC[count], &GITT_D[count]) == 2)
+    {
+        count++;
+        if (count > *nData)
+        {
+            printf("Not Enough Space Allocated. Exiting...\n");
+            return 1;
+        }
+    }
+
+    // update the number of data
+    *nData = (int) count;
+
+    // close the file
+    fclose(target_data);
+
+    return 0;
+}
+
+void SetDC_Linear(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char *simData, double *C)
+{
+    /*
+        Function SetDC_Linear:
+        Inputs:
+            - pointer to options struct
+            - pointer to TSSD options
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+            - pointer to simData (phase labels)
+            - pointer to concentration array
+        Outputs:
+            - none
+        
+        Diffusion coefficients are set based on the current concentration,
+        therefore diffusion coefficient is dependent on concentration
+        ONLY FOR THE POI.
+    */
+
+    // hardcoded values (empirically derived by neutron + GITT)
+    
+    double a = 2.1727e-13;
+    double b = -2.9780e-13;
+
+    // iterate over the whole domain
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            int localPhase = simData[row * mesh->numCellsX + col];
+            if(localPhase != oTSSD->POI)
+            {
+                DC[row * mesh->numCellsX + col] = opts->DC[localPhase];
+            }
+            else
+            {
+                DC[row * mesh->numCellsX + col] = a * C[row * mesh->numCellsX + col] + b;
+            }
+        }
+    }
+
+    return;
+}
+
+void SetDC_GITT(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, char *simData, double POI_DC)
+{
+    /*
+    
+        Function SetDC_GITT:
+        Input:
+            - pointer to options struct, with general user input options
+            - oTSSD is a pointer to the data struct holding TSSD input data
+            - pointer to the mesh array
+            - pointer to diffusion coefficient array
+            - pointer to simData
+            - value of diffusion coefficient to be used for POI
+        Output:
+            - none
+        
+        Function will modify the DC-array to hold the proper DC according 
+        to GITT for the POI.
+    */
+
+    // iterate over simData
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            int localPhase = simData[row * mesh->numCellsX + col];
+            if(localPhase != oTSSD->POI)
+            {
+                DC[row * mesh->numCellsX + col] = opts->DC[localPhase];
+            }
+            else
+            {
+                DC[row * mesh->numCellsX + col] = POI_DC;
+            }
+        }
+    }
+
+    return;
+}
+
+int setDC_AnomDiff(TSSDopts *oTSSD, meshInfo *mesh, double *DC, double *C, char *simData)
+{
+    /*
+        Function setDC_AnomDiff:
+        Inputs:
+            - pointer to TSSD opts
+            - pointer to mesh info
+            - pointer to DC array
+            - pointer to Concentration array
+            - pointer to simData array (phase info)
+        Outputs:
+            - None
+        
+        Function will use user entered information along with the concentration array
+        to provide the diffusion coefficient of the POI according to the theory of
+        anomalous diffusion:
+
+        D = D'(Cmax + C)/(Cmax - C)
+
+        where D' and Cmax are entered by the user, C is using the calculated concentration.
+
+        The function returns false if Cmax - C ~ 0
+    */
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        // get local phase
+        int localPhase = simData[i];
+        
+        // check if not active material, increment
+        if(localPhase != oTSSD->POI)
+            continue;
+        // check for NaN potential
+        if (oTSSD->CMax <= C[i])
+            return 1;
+
+        DC[i] = oTSSD->Dprime*(C[i] + oTSSD->CMax)/(oTSSD->CMax - C[i]);
+    }
+    
     return 0;
 }
 

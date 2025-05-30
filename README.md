@@ -130,6 +130,7 @@ Additionally, some experimental features might come in the near future. At this 
 
 - GUI:
   - Running code on the GUI has significant impacts in terms of the overall efficiency. For now, if I do make a GUI at some point, it will mainly handle the input file generation, and not the actual simulation.
+  - Work has started on a gen-config style GUI. This GUI will help users configure the code. The code execution will remain a command-line only execution style, as this is primarily aimed for Linux/HPC resources.
 - Higher-order discretization methods.
 - For the GPU code, I will try and implement some of the most recent cuBLAS and cuSPARSE solvers.
 - For the CPU code, implementation of [scaLAPACK](https://www.netlib.org/scalapack/) for solving the sparse systems. I will test those versus the already existing solvers, so we will see what works best.

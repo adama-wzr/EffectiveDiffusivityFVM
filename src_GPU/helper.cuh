@@ -3880,7 +3880,7 @@ int RHS_Update2D(meshInfo   *mesh,
             RHS[i] += -CoeffMatrix[i * 5 + 1] * C0[i - 1];
         } else if (BC[BC_index - 1] == 2)
         {
-            RHS[i] += dx * dy * BC_Value[BC_index - 1];
+            RHS[i] += dy * BC_Value[BC_index - 1];
         }
 
         // East
@@ -3891,7 +3891,7 @@ int RHS_Update2D(meshInfo   *mesh,
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[i + 1];
         } else if (BC[BC_index + 1] == 2)
         {
-            RHS[i] += dx * dy * BC_Value[BC_index + 1];
+            RHS[i] +=  dy * BC_Value[BC_index + 1];
         }
 
         // South
@@ -4039,7 +4039,7 @@ int DiscTrans2D(options     *opts,
         {
             // Flux boundary (Neumann)
             // RHS[i] += BC_Value[BC_index - 1] * (dy);
-            RHS[i] += dx * dy * BC_Value[BC_index - 1];
+            RHS[i] += dy * BC_Value[BC_index - 1];
         } // other BC's not implemented yet
 
         // East
@@ -4066,7 +4066,7 @@ int DiscTrans2D(options     *opts,
         else if (BC[BC_index + 1] == 2)
         {
             // Flux boundary (Neumann)
-            RHS[i] += BC_Value[BC_index + 1] * (dy);
+            RHS[i] += BC_Value[BC_index + 1] * dy;
         }
 
         // South
@@ -4346,6 +4346,11 @@ int JI2D_SOR(double     *Coeff,
             pctChange = sum / count;
             // copy memory to temp conc
             memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+        }
+
+        if (opts->SteadyStateFlag && iterCount %  100000 == 0)
+        {
+            printf("Iter %ld, Conv %1.3e, Target %1.3e\n", iterCount, pctChange, opts->ConvergeCriteria);
         }
 
         // update d_Conc = d_ConcTemp

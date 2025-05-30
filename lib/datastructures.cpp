@@ -19,6 +19,12 @@ typedef struct
     double totalTime;       // total experiment time
     double startTime;       // start time (if not 0)
     double pixelRes;        // pixel resolution in m
+    int useGITT;            // flag to use or not GITT (0 = false, 1 = true)
+    char* GITT_Name;        // GITT file name
+    int useLinear;          // Linear model for diffusion update as function of concentration
+    int useAnom;            // use theory of anomalous diffusion
+    double Dprime;          // anomalous diffusion parameter
+    double C0;              // initial concentration
 } TSSDopts;
 
 #endif

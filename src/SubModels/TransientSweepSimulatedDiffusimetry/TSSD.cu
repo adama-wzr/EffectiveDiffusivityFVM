@@ -12,7 +12,7 @@ Andre Adam.
 
 Last Updated:
 
-04/21/2025
+05/13/2025
 */
 
 #include <TSSD.cuh>
@@ -60,7 +60,6 @@ int main(int argc, char **argv)
     if (opts.verbose)
         printTSSD(&opts, &oTSSD);
 
-    // Pseudo-Code
 
     // Load image to simulate
 
@@ -93,11 +92,35 @@ int main(int argc, char **argv)
         printf("Mesh DT = %1.3e\n", mesh.dt);
     }
 
+    // if multiple methods are selected, just return an error
+
+    if(oTSSD.useGITT + oTSSD.useLinear + oTSSD.useAnom > 1)
+    {
+        printf("Multiple models selected, returning...\n");
+        return 1;
+    }
+
     // Create arrays for BC's and DC's
 
     double *DC = (double *)malloc(sizeof(double) * mesh.nElements);
     int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+
+    double *GITT_D;
+    double *GITT_SOC;
+    int nData = 100;    // just a hardcoded default, assuming I don't have more than 100 GITT points
+
+    if (oTSSD.useGITT)
+    {
+        // create space for arrays
+        GITT_D = (double *)malloc(sizeof(double) * nData);
+        GITT_SOC = (double *)malloc(sizeof(double) * nData);
+        //  set memory
+        memset(GITT_D, 0, sizeof(double) * nData);
+        memset(GITT_SOC, 0, sizeof(double) * nData);
+        // read GITT data
+        GITT_Interval(&oTSSD, GITT_SOC, GITT_D, &nData);
+    }
 
     // initialize arrays
 
@@ -105,9 +128,19 @@ int main(int argc, char **argv)
     memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
-    SetDC2D(&opts, &mesh, DC, simData);
+    // start an array for SOC
 
-    free(simData);
+    double SOC = 0;
+    int GITT_idx = 0;
+    double POI_DC = 0;
+
+    if (oTSSD.useGITT == 0)
+        SetDC2D(&opts, &mesh, DC, simData);
+    else
+    {
+        POI_DC = GITT_D[GITT_idx];
+        SetDC_GITT(&opts, &oTSSD, &mesh, DC, simData, POI_DC);
+    }
 
     // BC Conditions for TSSD Model
 
@@ -124,12 +157,6 @@ int main(int argc, char **argv)
         Not there yet
     */
 
-    // Simulate 5 minutes at different Diffusion coefficients
-
-    /*
-        Let's simulate using the DC of the first GITT step.
-    */
-
     // Allocate arrays for holding discretized equations
 
     double *CoeffMatrix = (double *)malloc(mesh.nElements * 5 * sizeof(double));
@@ -143,14 +170,28 @@ int main(int argc, char **argv)
     memset(CoeffMatrix, 0.0, mesh.nElements * sizeof(double) * 5);
     memset(RHS, 0.0, mesh.nElements * sizeof(double));
     memset(Concentration, 0.0, mesh.nElements * sizeof(double));
-    memset(C0, 0.0, sizeof(double) * mesh.nElements); // unless we pass a field-function, C0 = 1
+    memset(C0, 0.0, sizeof(double) * mesh.nElements);
 
     for(int i = 0; i < mesh.nElements; i++)
     {
         if (DC[i] == 0)
             continue;
-        Concentration[i] = 1.65;    // mol/m^3
-        C0[i] = 1.65;               // mol/m^3
+        Concentration[i] = oTSSD.C0;    // mol/m^3
+        C0[i] = oTSSD.C0;               // mol/m^3
+    }
+
+    if(oTSSD.useAnom)
+    {
+        // populate DC array
+        setDC_AnomDiff(&oTSSD, &mesh, DC, Concentration, simData);
+    }
+
+    
+    // if using linear model, update
+
+    if(oTSSD.useLinear)
+    {
+        SetDC_Linear(&opts, &oTSSD, &mesh, DC, simData, Concentration);
     }
 
     // Declare needed arrays
@@ -199,11 +240,50 @@ int main(int argc, char **argv)
 
     while (mesh.currentTime <= oTSSD.totalTime)
     {
-        if (mesh.currentTime != 0)
+        // if using GITT data, check for updates to DC
+        if(oTSSD.useGITT)
         {
-            // coefficient matrix is still good, just update the RHS
-            RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            SOC = mesh.currentTime / oTSSD.totalTime * 100;
+            if (SOC >= GITT_SOC[GITT_idx + 1] && GITT_SOC[GITT_idx + 1] != 0 && GITT_D[GITT_idx + 1] != 0)
+            {
+                // update DC
+                GITT_idx++;
+                POI_DC = GITT_D[GITT_idx];
+                SetDC_GITT(&opts, &oTSSD, &mesh, DC, simData, POI_DC);
+                // discretize system again
+                DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+                printf("Updated DC: %1.3e, Time = %1.3e, SOC = %1.3e\n", POI_DC, mesh.currentTime, SOC);
+            }
+            else if(mesh.currentTime != 0)
+            {
+                // no DC update, only update RHS
+                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            }
+        } 
+        else if(oTSSD.useLinear)
+        {
+            // update diffusion coefficients
+            SetDC_Linear(&opts, &oTSSD, &mesh, DC, simData, Concentration);
+            // discretize system again
+            DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
         }
+        else if(oTSSD.useAnom)
+        {
+            // update DC and discretize again
+            setDC_AnomDiff(&oTSSD, &mesh, DC, Concentration, simData);
+
+            DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+        }
+        else
+        {
+            // no using GITT data
+            if (mesh.currentTime != 0)
+            {
+                // coefficient matrix is still good, just update the RHS
+                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+            }
+        }
+
 
         if (opts.useGPU == 0)
         {
