@@ -56,8 +56,9 @@ Last Update:
 #include "cuda.h"
 #include <omp.h>
 #include <filesystem>
+#include <constants.cpp>
 
-#define FARADAY 9.648533e4         // C / mol
+// #define FARADAY 9.648533e4         // C / mol
 
 // CUDA CHECK ERROR
 
