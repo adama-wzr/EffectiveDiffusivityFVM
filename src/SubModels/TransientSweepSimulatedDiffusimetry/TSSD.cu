@@ -71,7 +71,7 @@ int main(int argc, char **argv)
     // print options
 
     if (opts.verbose)
-        printTSSD(&opts, &oTSSD);
+        printTSSD(&opts, &oTSSD, &mig);
 
 
     // Load image to simulate

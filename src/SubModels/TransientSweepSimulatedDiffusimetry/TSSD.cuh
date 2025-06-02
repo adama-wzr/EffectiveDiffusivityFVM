@@ -17,7 +17,7 @@ Handling user input in TSSD submodel:
 
 */
 
-void printTSSD(options *opts, TSSDopts *oTSSD)
+void printTSSD(options *opts, TSSDopts *oTSSD, Migration *mig)
 {
     /*
         print user options
@@ -94,16 +94,6 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
 
     printf("Current Density: %1.3f A/m^2\n", oTSSD->current_density);
 
-    if (oTSSD->D0 == 1)
-    {
-        printf("Anomalous Diffusion Information not entered.\n");
-    }
-    else
-    {
-        printf("Trace Species Diffusion: %1.3e m^2/s\n", oTSSD->D0);
-        printf("CMax: %1.3e mol/m^3\n", oTSSD->CMax);
-    }
-
     if(oTSSD->useGITT)
     {
         printf("Reading GITT Results.\n");
@@ -117,9 +107,21 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
 
     if(oTSSD->useAnom)
     {
+        printf("\n--------------------------------------------\n\n");
         printf("Using Anomalous Diffusion Model\n");
         printf("Cmax: %1.3e [mol/m3]\n", oTSSD->CMax);
         printf("D': %1.3e [m^2/s]\n", oTSSD->Dprime);
+    }
+
+    if(oTSSD->useMig)
+    {
+        printf("\n--------------------------------------------\n\n");
+        printf("Migration Phenomena Considerations:\n");
+        printf("Charge = %d\n", opts->charge);
+        printf("Temp = %3.1f Kelvin\n", mig->T);
+        printf("E-Field Gradient (x) =  %1.3e\n", mig->dE_dL[0]);
+        printf("E-Field Gradient (y) =  %1.3e\n", mig->dE_dL[1]);
+        printf("E-Field Gradient (z) =  %1.3e\n", mig->dE_dL[2]);
     }
 
     return;
