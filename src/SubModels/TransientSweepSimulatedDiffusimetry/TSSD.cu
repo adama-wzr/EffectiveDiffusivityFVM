@@ -241,6 +241,11 @@ int main(int argc, char **argv)
     // New discretization needed
     DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
 
+    // Migration contribution to discretization
+    if(oTSSD.useMig)
+        Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
+
+
     mesh.currentTime = 0;
 
     int step = 0;

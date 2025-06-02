@@ -89,8 +89,78 @@ int readInputMig(Migration *mig)
 
 */
 
-void Disc_Mob2D(double *Coeff, double *RHS, meshInfo *mesh)
+void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opts, meshInfo *mesh, Migration *mig)
 {
+    /*
+        Function Disc_Mig2D:
+        Inputs:
+            - pointer to coefficient matrix
+            - pointer to DC array
+            - pointer to RHS array
+            - pointer to (previous time-step) concentration array
+            - pointer to opts struct
+            - pointer to mesh struct
+            - pointer to migration struct
+        Outputs:
+            - none.
+        
+        This function will provide the migration contribution to the diffusion 
+        of charged species. 
+    */
+
+
+    // declare needed variables
+    double ap;
+    double dn, ds;
+    double dx = mesh->dx;
+    double dy = mesh->dy;
+    int row, col;
+
+    FILE *TEST;
+
+    TEST = fopen("TestDisc.csv", "w+");
+    fprintf(TEST, "ap,Mig\n");
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        // get row and column
+
+        row = i/mesh->numCellsX;
+        col = i - row * mesh->numCellsX;
+
+        // Check north
+
+        if(row == 0)
+        {
+            // no North
+            dn = DC[i];
+        }else
+        {
+            // yes North
+            dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - 1]);
+            if (DC[i] == 0)
+                dn = 0;
+        }
+
+        if(row == mesh->numCellsY - 1)
+        {
+            // no South
+            ds = DC[i];
+        }else
+        {
+            // yes South
+            ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + 1]);
+        }
+
+        fprintf(TEST, "%1.3e,%1.3e\n", Coeff[i*5 + 0], opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds));
+
+        // update coefficient
+
+        Coeff[i*5 + 0] += opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds);
+        RHS[i] += -opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds)*C0[i];
+    }
+
+    fclose(TEST);
     
     return;
 }
