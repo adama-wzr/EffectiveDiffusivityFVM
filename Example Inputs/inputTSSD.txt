@@ -39,3 +39,4 @@ Anomalous: 1
 Cmax: 2.0593e4
 Dprime: 1e-18
 C0: 2.0572e+04
+Mig: 1
