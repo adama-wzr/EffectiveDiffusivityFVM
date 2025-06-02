@@ -7,6 +7,7 @@
 #include <string>
 
 #include <helper.cuh>
+#include <Migration.cuh>
 #include <datastructures.cpp>
 #include <constants.cpp>
 
@@ -162,6 +163,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->useGITT = 0;
     oTSSD->useLinear = 0;
     oTSSD->useAnom = 0;
+    oTSSD->useMig = 0;
     oTSSD->Dprime = 0;
     oTSSD->C0 = 1.65;
 
@@ -251,6 +253,10 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         else if(strcmp(tempC, "C0:") == 0)
         {
             oTSSD->C0 = tempD;
+        }
+        else if(strcmp(tempC, "Mig:") == 0)
+        {
+            oTSSD->useMig = (int)tempD;
         }
 
     }

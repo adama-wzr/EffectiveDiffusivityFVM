@@ -23,6 +23,7 @@ int main(int argc, char **argv)
     options opts;
     TSSDopts oTSSD;
     meshInfo mesh;
+    Migration mig;
 
     // TSSD Input Name
 
@@ -54,6 +55,18 @@ int main(int argc, char **argv)
 
     // read input TSSD
     readInputTSSD(inputFilename, &oTSSD);
+
+    // read mig if necessary
+    if (oTSSD.useMig)
+    {
+        bool error = readInputMig(&mig);
+        if(error)
+        {
+            printf("Some error occured while trying to read the input file for Migration model.\n");
+            printf("Exiting Now!\n");
+            return 1;
+        }
+    }
 
     // print options
 
