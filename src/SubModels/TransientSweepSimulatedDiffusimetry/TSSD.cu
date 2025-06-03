@@ -245,7 +245,6 @@ int main(int argc, char **argv)
     if(oTSSD.useMig)
         Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
 
-
     mesh.currentTime = 0;
 
     int step = 0;

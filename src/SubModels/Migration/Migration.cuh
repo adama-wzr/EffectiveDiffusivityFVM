@@ -151,8 +151,9 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
             // yes North
             dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - 1]);
             an = dn*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
-            if (DC[i] == 0)
-                dn = 0;
+
+            // RHS contribution
+            RHS[i] += - an * C0[i - mesh->numCellsX];
         }
 
         if(row == mesh->numCellsY - 1)
@@ -172,6 +173,10 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
             // yes South
             ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + 1]);
             as = -ds*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
+
+            // RHS contribution
+            RHS[i] += as * C0[i + mesh->numCellsX];
+
         }
 
         fprintf(TEST, "%1.3e,%1.3e\n", Coeff[i*5 + 0], opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds));
@@ -181,7 +186,8 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         Coeff[i*5 + 0] += ap;    // central coefficient
         Coeff[i*5 + 3] += as;   // south coefficient
         Coeff[i*5 + 4] += an;   // north coefficient
-        
+
+        // Append RHS w/ previous time-step
         RHS[i] += -ap*C0[i];
     }
 
