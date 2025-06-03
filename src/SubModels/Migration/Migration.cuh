@@ -110,7 +110,7 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
 
 
     // declare needed variables
-    double ap;
+    double ap, an, as;
     double dn, ds;
     double dx = mesh->dx;
     double dy = mesh->dy;
@@ -128,16 +128,29 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         row = i/mesh->numCellsX;
         col = i - row * mesh->numCellsX;
 
+        // if DC[i] == 0; no flux
+
+        if(DC[i] == 0)
+            continue;
+
         // Check north
 
         if(row == 0)
         {
             // no North
-            dn = DC[i];
-        }else
+            dn = 0;
+            an = 0;
+        }else if(DC[i-mesh->numCellsX] == 0)
+        {
+            // no flux North
+            dn = 0;
+            an = 0;
+        }
+        else
         {
             // yes North
             dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - 1]);
+            an = dn*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
             if (DC[i] == 0)
                 dn = 0;
         }
@@ -145,19 +158,31 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         if(row == mesh->numCellsY - 1)
         {
             // no South
-            ds = DC[i];
-        }else
+            ds = 0;
+            as = 0;
+        }
+        else if(DC[i + mesh->numCellsX] == 0)
+        {
+            // no flux South
+            ds = 0;
+            as = 0;
+        }
+        else
         {
             // yes South
             ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + 1]);
+            as = -ds*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
         }
 
         fprintf(TEST, "%1.3e,%1.3e\n", Coeff[i*5 + 0], opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds));
 
         // update coefficient
-
-        Coeff[i*5 + 0] += opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds);
-        RHS[i] += -opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds)*C0[i];
+        ap = opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds);
+        Coeff[i*5 + 0] += ap;    // central coefficient
+        Coeff[i*5 + 3] += as;   // south coefficient
+        Coeff[i*5 + 4] += an;   // north coefficient
+        
+        RHS[i] += -ap*C0[i];
     }
 
     fclose(TEST);
