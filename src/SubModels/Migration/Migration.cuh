@@ -116,11 +116,6 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
     double dy = mesh->dy;
     int row, col;
 
-    FILE *TEST;
-
-    TEST = fopen("TestDisc.csv", "w+");
-    fprintf(TEST, "ap,an,as,Mig_p,Mig_n,Mig_s\n");
-
     for (int i = 0; i < mesh->nElements; i++)
     {
         // get row and column
@@ -178,11 +173,10 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
             RHS[i] += -as * C0[i + mesh->numCellsX];
         }
 
-        fprintf(TEST, "%1.3e,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e\n", Coeff[i*5 + 0], Coeff[i*5 + 4], Coeff[i*5 + 3], 
-            opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds), as, an);
-
         // update coefficient
+
         ap = dx*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds)/2;
+
         Coeff[i*5 + 0] += ap;       // central coefficient
         Coeff[i*5 + 3] += as;       // south coefficient
         Coeff[i*5 + 4] += an;       // north coefficient
@@ -191,8 +185,6 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         RHS[i] += -ap*C0[i];
     }
 
-    fclose(TEST);
-    
     return;
 }
 
