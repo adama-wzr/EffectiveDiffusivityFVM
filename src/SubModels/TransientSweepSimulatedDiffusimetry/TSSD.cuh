@@ -458,7 +458,14 @@ void printCandF(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, doub
             }
             else if(row == mesh->numCellsY - 1)
             {
-                J2 = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+                if ( mesh->SA == 0)
+                {
+                    J2 = 0;
+                }
+                else
+                {
+                    J2 = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+                }
                 Jy = (J2 + J1)/2;
             }
             else
@@ -526,6 +533,12 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
     // flux units = mol m^-2 s^-1
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
     flux = 2*2.8599e-05;
+
+    /*
+            DELETE THIS
+    */
+
+    flux = 0.0;
 
     printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
     printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);

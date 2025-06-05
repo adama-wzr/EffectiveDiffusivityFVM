@@ -31,7 +31,7 @@ typedef struct
 typedef struct
 {
     double T;               // operating temperature
-    double dE_dL[3];        // array containing the three potentials (d, dy, and dz, respectively) 
+    double dE_dL[3];        // array containing the three potentials (dx, dy, and dz, respectively) 
 } Migration;
 
 #endif

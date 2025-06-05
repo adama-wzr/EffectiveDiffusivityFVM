@@ -97,7 +97,12 @@ int main(int argc, char **argv)
             maxDC = opts.DC[i];
     }
 
-    mesh.dt = 20 * mesh.dx * mesh.dx / maxDC;
+    mesh.dt = mesh.dx * mesh.dx / maxDC;
+    if(fabs(mesh.dx * maxDC * opts.charge * FARADAY/(GAS_C * mig.T)*mig.dE_dL[1]) > maxDC)
+    {
+        double temp = fabs(mesh.dx * maxDC * opts.charge * FARADAY/(GAS_C * mig.T)*mig.dE_dL[1]);
+        mesh.dt = mesh.dx*mesh.dx/temp;
+    }
 
     if (opts.verbose)
     {
@@ -293,11 +298,13 @@ int main(int argc, char **argv)
         }
         else
         {
-            // no using GITT data
+            // not using GITT data
             if (mesh.currentTime != 0)
             {
                 // coefficient matrix is still good, just update the RHS
-                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+                // RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+                DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+                Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
             }
         }
 
@@ -339,6 +346,16 @@ int main(int argc, char **argv)
             saveCyt(&mesh, Concentration, step);
             if (opts.verbose)
                 printf("Time = %1.3e\n", mesh.currentTime);
+            
+            // check NaN's
+            for(int i = 0; i < mesh.nElements; i++)
+            {
+                if(Concentration[i] != Concentration[i])
+                {
+                    printf("Found NaN at %d, time %1.3e\n", i, mesh.currentTime);
+                    return 1;
+                }
+            }
         }
     }
 

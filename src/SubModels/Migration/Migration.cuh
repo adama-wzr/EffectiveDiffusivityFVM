@@ -119,7 +119,7 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
     FILE *TEST;
 
     TEST = fopen("TestDisc.csv", "w+");
-    fprintf(TEST, "ap,Mig\n");
+    fprintf(TEST, "ap,an,as,Mig_p,Mig_n,Mig_s\n");
 
     for (int i = 0; i < mesh->nElements; i++)
     {
@@ -149,11 +149,11 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         else
         {
             // yes North
-            dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - 1]);
-            an = dn*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
+            dn = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i - mesh->numCellsX]);
+            an = dx*dn/2*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
 
             // RHS contribution
-            RHS[i] += - an * C0[i - mesh->numCellsX];
+            RHS[i] += -an * C0[i - mesh->numCellsX];
         }
 
         if(row == mesh->numCellsY - 1)
@@ -171,21 +171,21 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
         else
         {
             // yes South
-            ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + 1]);
-            as = -ds*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
+            ds = WeightedHarmonicMean(dy/2, dy/2, DC[i], DC[i + mesh->numCellsX]);
+            as = -dx*ds/2*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1];
 
             // RHS contribution
-            RHS[i] += as * C0[i + mesh->numCellsX];
-
+            RHS[i] += -as * C0[i + mesh->numCellsX];
         }
 
-        fprintf(TEST, "%1.3e,%1.3e\n", Coeff[i*5 + 0], opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds));
+        fprintf(TEST, "%1.3e,%1.3e,%1.3e,%1.3e,%1.3e,%1.3e\n", Coeff[i*5 + 0], Coeff[i*5 + 4], Coeff[i*5 + 3], 
+            opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds), as, an);
 
         // update coefficient
-        ap = opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds);
-        Coeff[i*5 + 0] += ap;    // central coefficient
-        Coeff[i*5 + 3] += as;   // south coefficient
-        Coeff[i*5 + 4] += an;   // north coefficient
+        ap = dx*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds)/2;
+        Coeff[i*5 + 0] += ap;       // central coefficient
+        Coeff[i*5 + 3] += as;       // south coefficient
+        Coeff[i*5 + 4] += an;       // north coefficient
 
         // Append RHS w/ previous time-step
         RHS[i] += -ap*C0[i];
