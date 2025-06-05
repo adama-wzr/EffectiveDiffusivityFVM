@@ -173,6 +173,17 @@ void Disc_Mig2D(double *Coeff, double *DC, double *RHS, double *C0, options *opt
             RHS[i] += -as * C0[i + mesh->numCellsX];
         }
 
+        /*
+            The correction below is applied because we only model the cathode.
+            In other words, the electric field potential still exists
+            beyond the boundary, and the boundary experiences flux, therefore
+            we need to account for that.
+        */
+
+        if(row == mesh->numCellsY - 1)
+            ds = DC[i];
+
+
         // update coefficient
 
         ap = dx*opts->charge*FARADAY/(GAS_C * mig->T)*mig->dE_dL[1]*(dn - ds)/2;

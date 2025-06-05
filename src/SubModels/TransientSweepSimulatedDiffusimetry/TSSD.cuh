@@ -534,12 +534,6 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
     flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
     flux = 2*2.8599e-05;
 
-    /*
-            DELETE THIS
-    */
-
-    flux = 0.0;
-
     printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
     printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
 
