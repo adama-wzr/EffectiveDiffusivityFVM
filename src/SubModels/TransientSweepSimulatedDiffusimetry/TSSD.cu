@@ -97,11 +97,14 @@ int main(int argc, char **argv)
             maxDC = opts.DC[i];
     }
 
-    mesh.dt = 20*mesh.dx * mesh.dx / maxDC;
-    if(fabs(mesh.dx * maxDC * opts.charge * FARADAY/(GAS_C * mig.T)*mig.dE_dL[1]) > maxDC)
+    mesh.dt = 20 * mesh.dx * mesh.dx / maxDC;
+    if (oTSSD.useMig)
     {
-        double temp = fabs(mesh.dx * maxDC * opts.charge * FARADAY/(GAS_C * mig.T)*mig.dE_dL[1]);
-        mesh.dt = 20*mesh.dx*mesh.dx/temp;
+        if (fabs(mesh.dx * maxDC * opts.charge * FARADAY / (GAS_C * mig.T) * mig.dE_dL[1]) > maxDC)
+        {
+            double temp = fabs(mesh.dx * maxDC * opts.charge * FARADAY / (GAS_C * mig.T) * mig.dE_dL[1]);
+            mesh.dt = 20 * mesh.dx * mesh.dx / temp;
+        }
     }
 
     if (opts.verbose)
