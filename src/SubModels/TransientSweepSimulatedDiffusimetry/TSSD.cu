@@ -23,6 +23,7 @@ int main(int argc, char **argv)
     options opts;
     TSSDopts oTSSD;
     meshInfo mesh;
+    Migration mig;
 
     // TSSD Input Name
 
@@ -55,10 +56,22 @@ int main(int argc, char **argv)
     // read input TSSD
     readInputTSSD(inputFilename, &oTSSD);
 
+    // read mig if necessary
+    if (oTSSD.useMig)
+    {
+        bool error = readInputMig(&mig);
+        if(error)
+        {
+            printf("Some error occured while trying to read the input file for Migration model.\n");
+            printf("Exiting Now!\n");
+            return 1;
+        }
+    }
+
     // print options
 
     if (opts.verbose)
-        printTSSD(&opts, &oTSSD);
+        printTSSD(&opts, &oTSSD, &mig);
 
 
     // Load image to simulate
@@ -85,6 +98,14 @@ int main(int argc, char **argv)
     }
 
     mesh.dt = 20 * mesh.dx * mesh.dx / maxDC;
+    if (oTSSD.useMig)
+    {
+        if (fabs(mesh.dx * maxDC * opts.charge * FARADAY / (GAS_C * mig.T) * mig.dE_dL[1]) > maxDC)
+        {
+            double temp = fabs(mesh.dx * maxDC * opts.charge * FARADAY / (GAS_C * mig.T) * mig.dE_dL[1]);
+            mesh.dt = 20 * mesh.dx * mesh.dx / temp;
+        }
+    }
 
     if (opts.verbose)
     {
@@ -228,6 +249,10 @@ int main(int argc, char **argv)
     // New discretization needed
     DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
 
+    // Migration contribution to discretization
+    if(oTSSD.useMig)
+        Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
+
     mesh.currentTime = 0;
 
     int step = 0;
@@ -276,11 +301,13 @@ int main(int argc, char **argv)
         }
         else
         {
-            // no using GITT data
+            // not using GITT data
             if (mesh.currentTime != 0)
             {
                 // coefficient matrix is still good, just update the RHS
-                RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+                // RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+                DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+                Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
             }
         }
 
@@ -322,6 +349,16 @@ int main(int argc, char **argv)
             saveCyt(&mesh, Concentration, step);
             if (opts.verbose)
                 printf("Time = %1.3e\n", mesh.currentTime);
+            
+            // check NaN's
+            for(int i = 0; i < mesh.nElements; i++)
+            {
+                if(Concentration[i] != Concentration[i])
+                {
+                    printf("Found NaN at %d, time %1.3e\n", i, mesh.currentTime);
+                    return 1;
+                }
+            }
         }
     }
 

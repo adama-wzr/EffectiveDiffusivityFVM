@@ -25,6 +25,13 @@ typedef struct
     int useAnom;            // use theory of anomalous diffusion
     double Dprime;          // anomalous diffusion parameter
     double C0;              // initial concentration
+    int useMig;             // migration or not (0 = false, 1 = true)
 } TSSDopts;
+
+typedef struct
+{
+    double T;               // operating temperature
+    double dE_dL[3];        // array containing the three potentials (dx, dy, and dz, respectively) 
+} Migration;
 
 #endif

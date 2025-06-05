@@ -10,7 +10,7 @@ include_directories(
     # "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src_GPU"
     "${PROJECT_SOURCE_DIR}/src"
-    "${PROJECT_SOURCE_DIR}/src/SubModels"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/Migration"
     "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
     "${PROJECT_SOURCE_DIR}/lib/"
     # "${PROJECT_SOURCE_DIR}/tests"
@@ -60,7 +60,17 @@ endif (UNIX)
 
 
 # add submodels with target link executable
-
+include_directories(
+    TSSD PUBLIC
+    # "${PROJECT_SOURCE_DIR}"
+    "${PROJECT_SOURCE_DIR}/src_GPU"
+    "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/Migration"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
+    "${PROJECT_SOURCE_DIR}/lib/"
+    # "${PROJECT_SOURCE_DIR}/tests"
+    # "${PROJECT_SOURCE_DIR}/src_cuda"
+)
 
 set(TEST_SOURCES
     src/SubModels/TransientSweepSimulatedDiffusimetry/TSSD.cu

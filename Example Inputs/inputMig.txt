@@ -1,0 +1,6 @@
+Input Configuration File Migration:
+T: 298
+dE_dx: 0
+dE_dy: 9500.0
+dE_dz: 0
+

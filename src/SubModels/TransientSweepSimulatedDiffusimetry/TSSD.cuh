@@ -7,7 +7,9 @@
 #include <string>
 
 #include <helper.cuh>
+#include <Migration.cuh>
 #include <datastructures.cpp>
+#include <constants.cpp>
 
 /*
 
@@ -15,7 +17,7 @@ Handling user input in TSSD submodel:
 
 */
 
-void printTSSD(options *opts, TSSDopts *oTSSD)
+void printTSSD(options *opts, TSSDopts *oTSSD, Migration *mig)
 {
     /*
         print user options
@@ -92,16 +94,6 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
 
     printf("Current Density: %1.3f A/m^2\n", oTSSD->current_density);
 
-    if (oTSSD->D0 == 1)
-    {
-        printf("Anomalous Diffusion Information not entered.\n");
-    }
-    else
-    {
-        printf("Trace Species Diffusion: %1.3e m^2/s\n", oTSSD->D0);
-        printf("CMax: %1.3e mol/m^3\n", oTSSD->CMax);
-    }
-
     if(oTSSD->useGITT)
     {
         printf("Reading GITT Results.\n");
@@ -115,9 +107,21 @@ void printTSSD(options *opts, TSSDopts *oTSSD)
 
     if(oTSSD->useAnom)
     {
+        printf("\n--------------------------------------------\n\n");
         printf("Using Anomalous Diffusion Model\n");
         printf("Cmax: %1.3e [mol/m3]\n", oTSSD->CMax);
         printf("D': %1.3e [m^2/s]\n", oTSSD->Dprime);
+    }
+
+    if(oTSSD->useMig)
+    {
+        printf("\n--------------------------------------------\n\n");
+        printf("Migration Phenomena Considerations:\n");
+        printf("Charge = %d\n", opts->charge);
+        printf("Temp = %3.1f Kelvin\n", mig->T);
+        printf("E-Field Gradient (x) =  %1.3e\n", mig->dE_dL[0]);
+        printf("E-Field Gradient (y) =  %1.3e\n", mig->dE_dL[1]);
+        printf("E-Field Gradient (z) =  %1.3e\n", mig->dE_dL[2]);
     }
 
     return;
@@ -161,6 +165,7 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
     oTSSD->useGITT = 0;
     oTSSD->useLinear = 0;
     oTSSD->useAnom = 0;
+    oTSSD->useMig = 0;
     oTSSD->Dprime = 0;
     oTSSD->C0 = 1.65;
 
@@ -250,6 +255,10 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         else if(strcmp(tempC, "C0:") == 0)
         {
             oTSSD->C0 = tempD;
+        }
+        else if(strcmp(tempC, "Mig:") == 0)
+        {
+            oTSSD->useMig = (int)tempD;
         }
 
     }
@@ -449,7 +458,14 @@ void printCandF(options *opts, TSSDopts *oTSSD, meshInfo *mesh, double *DC, doub
             }
             else if(row == mesh->numCellsY - 1)
             {
-                J2 = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+                if ( mesh->SA == 0)
+                {
+                    J2 = 0;
+                }
+                else
+                {
+                    J2 = mesh->dt * oTSSD->current_density / (mesh->SA * opts->charge * FARADAY);
+                }
                 Jy = (J2 + J1)/2;
             }
             else
