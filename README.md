@@ -113,6 +113,7 @@ Recent Added Changes:
 5. Flexible boundary conditions are available.
 6. Transient model (2D + 1D) is currently available, seems to work well.
 7. Initial concentration distributions have been implemented for transient simulation, but not yet for the other methods.
+8. Migration has been added (to 2D + 1D model), lacks documentation and validation at the moment.
 
 Upcoming changes (in no particular order):
 - Time discretizations (3D + 1D).
