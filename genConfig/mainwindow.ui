@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <widget class="QTabWidget" name="tabWidget">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>10</y>
+      <width>781</width>
+      <height>561</height>
+     </rect>
+    </property>
+    <widget class="QWidget" name="tabWidgetPage1" native="true">
+     <attribute name="title">
+      <string/>
+     </attribute>
+     <widget class="QLabel" name="submodel_Label">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>10</y>
+        <width>131</width>
+        <height>21</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Select a Submodel:</string>
+      </property>
+     </widget>
+     <widget class="QComboBox" name="subModel">
+      <property name="geometry">
+       <rect>
+        <x>130</x>
+        <y>10</y>
+        <width>181</width>
+        <height>22</height>
+       </rect>
+      </property>
+      <item>
+       <property name="text">
+        <string>Effective Diffusivity 2D</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Effective Diffusivity 3D</string>
+       </property>
+      </item>
+     </widget>
+     <widget class="QStackedWidget" name="stackedWidget">
+      <property name="geometry">
+       <rect>
+        <x>10</x>
+        <y>40</y>
+        <width>771</width>
+        <height>491</height>
+       </rect>
+      </property>
+      <widget class="QWidget" name="page">
+       <widget class="QScrollArea" name="scrollArea">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>761</width>
+          <height>681</height>
+         </rect>
+        </property>
+        <property name="widgetResizable">
+         <bool>true</bool>
+        </property>
+        <widget class="QWidget" name="scrollAreaWidgetContents">
+         <property name="geometry">
+          <rect>
+           <x>0</x>
+           <y>0</y>
+           <width>759</width>
+           <height>679</height>
+          </rect>
+         </property>
+         <layout class="QGridLayout" name="gridLayout">
+          <item row="2" column="0">
+           <widget class="QTextEdit" name="textEdit_3"/>
+          </item>
+          <item row="3" column="0">
+           <widget class="QTextEdit" name="textEdit_4"/>
+          </item>
+          <item row="0" column="0">
+           <widget class="QTextEdit" name="textEdit"/>
+          </item>
+          <item row="1" column="0">
+           <widget class="QTextEdit" name="textEdit_2"/>
+          </item>
+         </layout>
+        </widget>
+       </widget>
+      </widget>
+      <widget class="QWidget" name="page_2"/>
+     </widget>
+    </widget>
+    <widget class="QWidget" name="tabWidgetPage2" native="true">
+     <attribute name="title">
+      <string/>
+     </attribute>
+    </widget>
+   </widget>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
