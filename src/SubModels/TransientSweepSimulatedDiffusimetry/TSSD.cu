@@ -305,12 +305,18 @@ int main(int argc, char **argv)
             if (mesh.currentTime != 0)
             {
                 // coefficient matrix is still good, just update the RHS
-                // RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
-                DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
-                Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
+                if(oTSSD.useMig)
+                {
+                    DiscTrans2D(&opts, &mesh, BC, BC_Value, DC, CoeffMatrix, RHS, C0);
+                    Disc_Mig2D(CoeffMatrix, DC, RHS, C0, &opts, &mesh, &mig);
+                }
+                else
+                {
+                    RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+                } 
+                
             }
         }
-
 
         if (opts.useGPU == 0)
         {
