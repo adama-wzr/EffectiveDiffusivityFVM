@@ -23,7 +23,10 @@
       <height>561</height>
      </rect>
     </property>
-    <widget class="QWidget" name="tabWidgetPage1" native="true">
+    <property name="currentIndex">
+     <number>0</number>
+    </property>
+    <widget class="QWidget" name="EffectiveDiffusivity">
      <attribute name="title">
       <string/>
      </attribute>
@@ -69,14 +72,17 @@
         <height>491</height>
        </rect>
       </property>
+      <property name="currentIndex">
+       <number>0</number>
+      </property>
       <widget class="QWidget" name="page">
        <widget class="QScrollArea" name="scrollArea">
         <property name="geometry">
          <rect>
           <x>0</x>
-          <y>0</y>
+          <y>10</y>
           <width>761</width>
-          <height>681</height>
+          <height>671</height>
          </rect>
         </property>
         <property name="widgetResizable">
@@ -88,21 +94,111 @@
            <x>0</x>
            <y>0</y>
            <width>759</width>
-           <height>679</height>
+           <height>669</height>
           </rect>
          </property>
          <layout class="QGridLayout" name="gridLayout">
           <item row="2" column="0">
-           <widget class="QTextEdit" name="textEdit_3"/>
+           <widget class="QLabel" name="DC_Label">
+            <property name="text">
+             <string>D1</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="3">
+           <widget class="QLabel" name="CL_Label">
+            <property name="text">
+             <string>CL</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="2">
+           <widget class="QLineEdit" name="CR_Input"/>
+          </item>
+          <item row="2" column="2">
+           <widget class="QLineEdit" name="DC"/>
+          </item>
+          <item row="6" column="0">
+           <widget class="QLabel" name="CR_Label">
+            <property name="text">
+             <string>CR</string>
+            </property>
+           </widget>
           </item>
           <item row="3" column="0">
-           <widget class="QTextEdit" name="textEdit_4"/>
+           <widget class="QCheckBox" name="CMAPbox">
+            <property name="text">
+             <string>Print C-Map</string>
+            </property>
+           </widget>
           </item>
-          <item row="0" column="0">
-           <widget class="QTextEdit" name="textEdit"/>
+          <item row="3" column="2">
+           <widget class="QLineEdit" name="CMAPname">
+            <property name="readOnly">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QLineEdit" name="InputFilename"/>
+          </item>
+          <item row="6" column="4">
+           <widget class="QLineEdit" name="CL_Input"/>
+          </item>
+          <item row="2" column="4">
+           <widget class="QLineEdit" name="PhaseTH"/>
+          </item>
+          <item row="3" column="4">
+           <widget class="QLineEdit" name="FMAPname">
+            <property name="readOnly">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="3">
+           <widget class="QLabel" name="nPhase_Label">
+            <property name="text">
+             <string>Number of Phases</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="3">
+           <widget class="QCheckBox" name="FMAPbox">
+            <property name="text">
+             <string>Print F-Map</string>
+            </property>
+           </widget>
           </item>
           <item row="1" column="0">
-           <widget class="QTextEdit" name="textEdit_2"/>
+           <widget class="QLabel" name="Filename_Label">
+            <property name="text">
+             <string>Input Name:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="4">
+           <widget class="QSpinBox" name="nPhases">
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>30</number>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="3">
+           <widget class="QLabel" name="TH_Label">
+            <property name="text">
+             <string>D1_TH</string>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QCheckBox" name="verbose">
+            <property name="text">
+             <string>Verbose</string>
+            </property>
+           </widget>
           </item>
          </layout>
         </widget>
@@ -110,8 +206,47 @@
       </widget>
       <widget class="QWidget" name="page_2"/>
      </widget>
+     <widget class="QPushButton" name="previewConfig">
+      <property name="geometry">
+       <rect>
+        <x>320</x>
+        <y>10</y>
+        <width>123</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Preview Config</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="ClearAll">
+      <property name="geometry">
+       <rect>
+        <x>460</x>
+        <y>10</y>
+        <width>123</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Clear All</string>
+      </property>
+     </widget>
+     <widget class="QPushButton" name="SaveConfig">
+      <property name="geometry">
+       <rect>
+        <x>600</x>
+        <y>10</y>
+        <width>123</width>
+        <height>24</height>
+       </rect>
+      </property>
+      <property name="text">
+       <string>Save Config</string>
+      </property>
+     </widget>
     </widget>
-    <widget class="QWidget" name="tabWidgetPage2" native="true">
+    <widget class="QWidget" name="SolverOptions">
      <attribute name="title">
       <string/>
      </attribute>
