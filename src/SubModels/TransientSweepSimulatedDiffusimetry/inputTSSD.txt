@@ -39,3 +39,6 @@ Anomalous: 0
 Cmax: 0
 Dprime: 1e-10
 C0: 2.0572e+04
+inputFlux: 1
+Flux: 5.7198e-05
+Mig: 0

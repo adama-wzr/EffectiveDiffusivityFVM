@@ -25,6 +25,8 @@ typedef struct
     int useAnom;            // use theory of anomalous diffusion
     double Dprime;          // anomalous diffusion parameter
     double C0;              // initial concentration
+    int inputFlux;          // Flag if read flux or not (0 = false, 1 = true)
+    double Flux;            // input flux in mol m^-2 s^-1
     int useMig;             // migration or not (0 = false, 1 = true)
 } TSSDopts;
 

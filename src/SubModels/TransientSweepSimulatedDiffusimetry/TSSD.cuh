@@ -155,19 +155,22 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
 
     // Default values set here
 
-    oTSSD->C_or_D = 0;
-    oTSSD->printMAP = 0;
-    oTSSD->startTime = 0;
-    oTSSD->D0 = 1;
-    oTSSD->CMax = 1e15;
-    oTSSD->DC_Min = 1e-15; // m^2/s
-    oTSSD->DC_Max = 1e-10; // m^2/s
-    oTSSD->useGITT = 0;
-    oTSSD->useLinear = 0;
-    oTSSD->useAnom = 0;
-    oTSSD->useMig = 0;
-    oTSSD->Dprime = 0;
-    oTSSD->C0 = 1.65;
+    oTSSD->C_or_D = 0;      // charge or discharge
+    oTSSD->printMAP = 0;    // true or false
+    oTSSD->startTime = 0;   // s
+    oTSSD->D0 = 1;          // m^2 s^-1
+    oTSSD->CMax = 1e15;     // mol m^-3
+    oTSSD->DC_Min = 1e-15;  // m^2 s^-1
+    oTSSD->DC_Max = 1e-10;  // m^2 s^-1
+    oTSSD->useGITT = 0;     // true or false
+    oTSSD->useLinear = 0;   // true or false
+    oTSSD->useAnom = 0;     // true or false
+    oTSSD->useMig = 0;      // true or false
+    oTSSD->Dprime = 0;      // m^2 s^-1
+    oTSSD->C0 = 1.65;       // mol m^-3
+
+    oTSSD->inputFlux = 0;   // true or false
+    oTSSD->Flux = 0;        // mol m^-2 s^-1
 
     oTSSD->GITT_Name = (char *)malloc(sizeof(char) * 1000);
 
@@ -260,7 +263,14 @@ void readInputTSSD(char *FileName, TSSDopts *oTSSD)
         {
             oTSSD->useMig = (int)tempD;
         }
-
+        else if(strcmp(tempC, "inputFlux:") == 0)
+        {
+            oTSSD->inputFlux = (int)tempD;
+        }
+        else if(strcmp(tempC, "Flux:") == 0)
+        {
+            oTSSD->Flux = tempD;
+        }
     }
     return;
 }
@@ -526,16 +536,24 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
     double flux;
 
-    // volume of the sample is hard-coded, consider making this an input
-    double volume = 3.1415 * 100e-06 * pow(0.004,2)/4.0;
-    // convert current density to current
-    oTSSD->current_density = oTSSD->current_density * 3.1415 * pow(0.004,2)/4.0;
-    // flux units = mol m^-2 s^-1
-    flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
-    flux = 2*2.8599e-05;
+    if (oTSSD->inputFlux)
+    {
+        // use the input flux
+        flux = oTSSD->Flux;
+        printf("Input flux = %1.3e [mol/m^2 s]\n", flux);
+    }
+    {
+        // volume of the sample is hard-coded, consider making this an input
+        double volume = 3.1415 * 100e-06 * pow(0.004,2)/4.0;
+        // convert current density to current
+        oTSSD->current_density = oTSSD->current_density * 3.1415 * pow(0.004,2)/4.0;
+        // flux units = mol m^-2 s^-1
+        flux = oTSSD->current_density / (mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume * opts->charge * FARADAY);
+        flux = 2*2.8599e-05;
 
-    printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
-    printf("SA: %1.3e m^2, Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
+        printf("SSA: %1.3e m^-1, Volume  = %1.3e m^3, current = %1.3e A\n", mesh->SSA/pow(oTSSD->pixelRes, 3), volume, oTSSD->current_density);
+        printf("SA: %1.3e m^2, Calculated Flux = %1.3e [mol/m^2-s]\n", mesh->SSA/(pow(oTSSD->pixelRes, 3)) * volume, flux);
+    }
 
     int right, left, top, bottom;
     // set col values for right and left
