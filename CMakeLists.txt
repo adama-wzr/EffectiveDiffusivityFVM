@@ -89,3 +89,36 @@ endif(UNIX)
 set_property(TARGET TSSD PROPERTY CUDA_SEPARABLE_COMPILATION ON)
 set_property(TARGET TSSD PROPERTY CUDA_ARCHITECTURES 86 89)
 target_compile_features(TSSD PUBLIC cxx_std_17)
+
+
+# Add ASSC submodel -------------------------------------------------
+include_directories(
+    ASSC PUBLIC
+    # "${PROJECT_SOURCE_DIR}"
+    "${PROJECT_SOURCE_DIR}/src_GPU"
+    "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/Migration"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/AllSolidCathode"
+    "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
+    "${PROJECT_SOURCE_DIR}/lib/"
+    # "${PROJECT_SOURCE_DIR}/tests"
+    # "${PROJECT_SOURCE_DIR}/src_cuda"
+)
+
+set(ASSC_SOURCE
+    src/SubModels/AllSolidCathode/ASSC.cu
+)
+
+add_executable(
+    ASSC
+    ${ASSC_SOURCE}
+)
+
+if (UNIX)
+    target_link_libraries(ASSC PRIVATE OpenMP::OpenMP_CXX)
+endif(UNIX)
+
+# Compilation options to ensure this works with CUDA + OpenMP
+set_property(TARGET ASSC PROPERTY CUDA_SEPARABLE_COMPILATION ON)
+set_property(TARGET ASSC PROPERTY CUDA_ARCHITECTURES 86 89)
+target_compile_features(ASSC PUBLIC cxx_std_17)
