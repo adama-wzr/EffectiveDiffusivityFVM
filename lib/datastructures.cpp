@@ -34,4 +34,14 @@ typedef struct
     double dE_dL[3];        // array containing the three potentials (dx, dy, and dz, respectively) 
 } Migration;
 
+typedef struct
+{
+    int POI;                // phase of interest
+    double CMax;            // parameter for concentration
+    double D0;              // parameters for anomalous diffusion
+    double stepTime;        // time for step (s)
+    double totalTime;       // total sim time
+    double startTime;       // 
+} ASSCopts;
+
 #endif
