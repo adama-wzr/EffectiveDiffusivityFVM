@@ -30,6 +30,7 @@ stepSize: 302.5
 totalTime: 46885
 pixelResolution: 2.16e-7
 C0: 2.0572e+04
-inputFlux: 1
 current_density: 1
+PB: 1
 Mig: 0
+

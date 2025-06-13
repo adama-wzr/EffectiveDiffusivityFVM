@@ -17,7 +17,7 @@
 
 */
 
-void printInputASSC(options *opts, ASSCopts *oASSC)
+void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
 {
     /*
         printInputASSC Function:
@@ -71,6 +71,13 @@ void printInputASSC(options *opts, ASSCopts *oASSC)
         printf("Mesh Refine Z = %d\n", opts->MeshIncreaseZ);
     }
 
+    // number of cells
+
+    printf("nElements: %ld\n", mesh->nElements);
+    printf("AM VF %1.3e\n", oASSC->AM_VF);
+    printf("AM SA: %1.3e m^2\n", mesh->SA);
+    printf("AM SSA: %1.3e m^-1\n", mesh->SSA);
+
     // Acceleration
 
     printf("Computation Mode:\n");
@@ -88,6 +95,8 @@ void printInputASSC(options *opts, ASSCopts *oASSC)
 
     printf("Max. Iterations: %ld\n", opts->MAX_ITER);
     printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
+    printf("Time Step: %1.3e [s]\n", mesh->dt);
+
 
     // BC
     if(oASSC->PB)
@@ -200,6 +209,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         {
             oASSC->C0 = tempD;
         }
+        else if(strcmp(tempC, "PB:") == 0)
+        {
+            oASSC->PB = (int)tempD;
+        }
     }
     return;
 }
@@ -224,6 +237,80 @@ void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
         Function will calculate the active surface area between AM and SE
         particles.
     */
+    double SA = 0;
+    int row, col;
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(simData[i] != oASSC->POI)
+            continue;
+        row = i / mesh->numCellsX;
+        col = i - row * mesh->numCellsX;
+
+        // check north and south
+        
+        if (row != 0)
+        {
+            // check north
+            if (simData[i - mesh->numCellsX] == 1)
+            {
+                SA += 1;
+            }
+        }
+
+        if(row != mesh->numCellsY - 1)
+        {
+            // check South
+            if (simData[i + mesh->numCellsX] == 1)
+            {
+                SA += 1;
+            }
+        }
+
+        // check east and west
+
+        if (col == 0 && oASSC->PB)
+        {
+            // periodic west
+            int tempCol = mesh->numCellsX - 1;
+            if(simData[row * mesh->numCellsX + tempCol] == 1)
+            {
+                SA += 1;
+            }
+        }
+        
+        if(col != 0)
+        {
+            // west
+            if (simData[i - 1] == 1)
+            {
+                SA += 1;
+            }
+        }
+
+        if (col == mesh->numCellsX - 1 && oASSC->PB)
+        {
+            // periodic east
+            int tempCol = 0;
+            if(simData[row*mesh->numCellsX + tempCol] == 1)
+            {
+                SA += 1;
+            }
+        }
+
+        if (col != mesh->numCellsX - 1)
+        {
+            // east
+            if(simData[i + 1] == 1)
+            {
+                SA += 1;
+            }
+        }
+    }// end for
+
+    // calculate SA and SSA
+    mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
+    mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
+
     return;
 }
 

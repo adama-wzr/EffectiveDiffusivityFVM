@@ -58,10 +58,8 @@ int main(int argc, char **argv)
 
     activeSA_2D_ASSC(&mesh, &oASSC, simData);
 
-
-
     if (opts.verbose)
-        printInputASSC(&opts, &oASSC);
+        printInputASSC(&opts, &oASSC, &mesh);
 
     test_funct();
 
