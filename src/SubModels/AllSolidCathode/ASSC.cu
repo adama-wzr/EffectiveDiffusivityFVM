@@ -4,6 +4,7 @@ int main(int argc, char **argv)
 {
     // declare structs
     options opts;
+    meshInfo mesh;
     ASSCopts oASSC;
 
     // read input data
@@ -29,10 +30,35 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    // read input (and print?)
+    // read input
 
     readInputGeneral(inputName, &opts);
     readInputASSC(inputName, &oASSC);
+
+    // Load image to simulate
+
+    char *simData;
+
+    readImg2D(&opts, &mesh, simData);
+
+    // set mesh parameters
+
+    mesh.dx = oASSC.pixelRes / opts.MeshIncreaseX;
+    mesh.dy = oASSC.pixelRes / opts.MeshIncreaseY;
+
+    // set dt based on POI_DC
+
+    double growth_factor = 10;
+
+    mesh.dt = growth_factor * pow(mesh.dx, 2)/ oASSC.POI_DC;
+
+    // calculate AM VF and active surface area
+
+    ASSC_AM_VF(&mesh, &oASSC, simData);
+
+    activeSA_2D_ASSC(&mesh, &oASSC, simData);
+
+
 
     if (opts.verbose)
         printInputASSC(&opts, &oASSC);

@@ -89,6 +89,12 @@ void printInputASSC(options *opts, ASSCopts *oASSC)
     printf("Max. Iterations: %ld\n", opts->MAX_ITER);
     printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
 
+    // BC
+    if(oASSC->PB)
+        printf("BC = periodic\n");
+    else
+        printf("BC = no flux (sides)\n");
+
 
     return;
 }
@@ -197,6 +203,86 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     }
     return;
 }
+
+/*
+
+    Discretization and Setup
+
+*/
+
+void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
+{
+    /*
+        activeSA_2D_ASSC:
+        Inputs:
+            - pointer to mesh info
+            - pointer to ASSC opts
+            - pointer to simData array
+        Outputs:
+            - none.
+        
+        Function will calculate the active surface area between AM and SE
+        particles.
+    */
+    return;
+}
+
+void ASSC_AM_VF(meshInfo *mesh, ASSCopts *oASSC, char *simData)
+{
+    /*
+        ASSC_AM_VF Function:
+        Inputs:
+            - pointer to meshInfo struct
+            - pointer to ASSC options struct
+            - pointer to simData
+        Outputs:
+            - AM_VF
+        
+        Function will calculate the AM volume fraction for this simulation.
+    */
+
+    long int count = 0;
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if (simData[i] == oASSC->POI)
+            count++;
+    }
+
+    oASSC->AM_VF = (double)count/mesh->nElements;
+
+    return;
+}
+
+void ASSC_DC(meshInfo *mesh, ASSCopts *oASSC, char *simData, double *DC)
+{
+    /*
+        ASSC_DC Function:
+        Inputs:
+            - pointer to meshInfo struct
+            - pointer to ASSCopts struct
+            - pointer to simData array
+            - pointer to diffusion coefficient array
+        Outputs:
+            - none
+        
+        Function will binarize depending on the POI for the ASSC simulation.
+        Only the DC array is modified.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(simData[i] == oASSC->POI)
+        {
+            DC[i] = oASSC->POI_DC;
+        }
+        else
+            DC[i] = 0;
+    }
+
+    return;
+}
+
 
 // Test function below
 
