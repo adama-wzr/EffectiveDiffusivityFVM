@@ -20,7 +20,7 @@ typedef struct
     double startTime;       // start time (if not 0)
     double pixelRes;        // pixel resolution in m
     int useGITT;            // flag to use or not GITT (0 = false, 1 = true)
-    char* GITT_Name;        // GITT file name
+    char *GITT_Name;        // GITT file name
     int useLinear;          // Linear model for diffusion update as function of concentration
     int useAnom;            // use theory of anomalous diffusion
     double Dprime;          // anomalous diffusion parameter
@@ -30,18 +30,22 @@ typedef struct
 
 typedef struct
 {
-    double T;               // operating temperature
-    double dE_dL[3];        // array containing the three potentials (dx, dy, and dz, respectively) 
+    double T;        // operating temperature
+    double dE_dL[3]; // array containing the three potentials (dx, dy, and dz, respectively)
 } Migration;
 
 typedef struct
 {
-    int POI;                // phase of interest
-    double CMax;            // parameter for concentration
-    double D0;              // parameters for anomalous diffusion
-    double stepTime;        // time for step (s)
-    double totalTime;       // total sim time
-    double startTime;       // 
+    int POI;               // phase of interest
+    int POI_TH;            // grayscale th for POI
+    double CMax;           // parameter for concentration
+    double D0;             // parameters for anomalous diffusion
+    double stepTime;       // time for step (s)
+    double totalTime;      // total sim time (s)
+    double startTime;      // start time other than 0?
+    double currentDensity; // current density (A/m)
+    double POI_DC;         // diffusion coefficient of phase of interest
+    double C0;             // initial concentration for POI
 } ASSCopts;
 
 #endif
