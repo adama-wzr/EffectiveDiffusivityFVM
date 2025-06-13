@@ -36,6 +36,7 @@ typedef struct
 
 typedef struct
 {
+    int printMAP;          // Will decide if CMaps/FMaps are printed or not
     int POI;               // phase of interest
     int POI_TH;            // grayscale th for POI
     double CMax;           // parameter for concentration
@@ -46,6 +47,9 @@ typedef struct
     double currentDensity; // current density (A/m)
     double POI_DC;         // diffusion coefficient of phase of interest
     double C0;             // initial concentration for POI
+    double pixelRes;       // pixel resolution
+    int PB;                // Periodic BC (0 = false, 1 = true)
+    int C_or_D;            // charge (0) or discharge (1)
 } ASSCopts;
 
 #endif

@@ -29,6 +29,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // read input (and print?)
+
+    readInputGeneral(inputName, &opts);
+    readInputASSC(inputName, &oASSC);
+
+    if (opts.verbose)
+        printInputASSC(&opts, &oASSC);
+
     test_funct();
 
     return 0;
