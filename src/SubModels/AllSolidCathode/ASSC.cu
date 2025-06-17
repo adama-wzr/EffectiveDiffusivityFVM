@@ -78,6 +78,8 @@ int main(int argc, char **argv)
     double *C0 = (double *)malloc(sizeof(double) * mesh.nElements);
     double *RHS = (double *)malloc(sizeof(double) * mesh.nElements);
     double *Coeff = (double *)malloc(sizeof(double) * mesh.nElements * nDiag);
+    int *BC = (int *)malloc(sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    double *BC_Value = (double *)malloc(sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
 
     // Intialize arrays
 
@@ -86,6 +88,8 @@ int main(int argc, char **argv)
     memset(C0, 0, sizeof(double) * mesh.nElements);
     memset(RHS, 0, sizeof(double) * mesh.nElements);
     memset(Coeff, 0, sizeof(double) * mesh.nElements * nDiag);
+    memset(BC, 0, sizeof(int) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
+    memset(BC_Value, 0, sizeof(double) * (mesh.numCellsY + 2) * (mesh.numCellsX + 2));
     
     // set DC's
 
@@ -108,10 +112,19 @@ int main(int argc, char **argv)
     }
 
     // set BCs
+    SetBC_ASSC(&opts, &mesh, &oASSC, simData, BC, BC_Value);
 
-    // SetBC_ASSC();
+    // discretize
 
-    // DC, and BCs
+    
+
+    // solve loop
+
+    mesh.currentTime = oASSC.startTime;
+
+    int step = 0;
+
+    double timeToCheck = oASSC.stepTime;
 
     test_funct();
 

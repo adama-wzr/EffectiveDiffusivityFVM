@@ -370,7 +370,7 @@ void ASSC_DC(meshInfo *mesh, ASSCopts *oASSC, char *simData, double *DC)
     return;
 }
 
-void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, double *BC, double *BC_value)
+void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, int *BC, double *BC_value)
 {
     /*
         Function SetBC_ASSC:
@@ -459,6 +459,104 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, d
     return;
 }
 
+
+void disc2D_ASSC(options     *opts,
+                meshInfo    *mesh,
+                int         *BC,
+                double      *BC_Value,
+                double      *DC,
+                double      *Coeff,
+                double      *RHS,
+                double      *C0)
+{
+    /*
+        Function disc2D_ASSC:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to BC (types)
+            - pointer to BC (values)
+            - pointer to DC
+            - pointer to Coefficient Matrix
+            - pointer to RHS
+            - pointer to concentration dist. at last time-step
+        Outputs:
+            - None.
+        
+        Function will create a 2D + 1D discretization of the given system based on
+        central differencing for the space dependent component and Crank-Nicolson
+        method for implicit time stepping.
+    */
+
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+    int row, col;
+    long int BC_index;
+    double dw, de, ds, dn;
+
+    int tempE, tempW;
+
+    // main loop
+
+    for(int index = 0; index < mesh->nElements; index++)
+    {
+        // If DC = 0, do not solve
+        if(DC[index] == 0)
+        {
+            Coeff[index*5 + 0] = 1;
+            RHS[index] = 0;
+        }
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // Deal with current conditions
+
+        row = index / nCols;
+        col = index - row * nCols;
+
+        // get temp indexes in case of periodic BC
+
+        if (col == 0)
+        {
+            tempW = nCols - 1;
+            tempE = col + 1;
+        }
+        else if (col == nCols - 1)
+        {
+            tempW = col - 1;
+            tempE = 0;
+        }
+        else
+        {
+            tempW = col - 1;
+            tempE = col + 1;
+        }
+
+        // East and West Discretization
+
+        
+
+    }
+
+
+    return;
+}
 
 // Test function below
 
