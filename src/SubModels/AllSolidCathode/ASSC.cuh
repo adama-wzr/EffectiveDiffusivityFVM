@@ -370,6 +370,95 @@ void ASSC_DC(meshInfo *mesh, ASSCopts *oASSC, char *simData, double *DC)
     return;
 }
 
+void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, double *BC, double *BC_value)
+{
+    /*
+        Function SetBC_ASSC:
+        Inputs:
+            - pointer to opts
+            - pointer to mesh
+            - pointer to ASSCopts (submodel opts)
+            - pointer to char simData
+            - pointer to BC array
+            - pointer to BC value (array)
+        Outputs:
+            - none
+        
+        BC Flags:
+        0 : No boundary
+        1 : Dirichlet
+        2 : Neumann
+        3 : Robin
+        4 : Mixed
+        5 : Periodic
+
+        Note: 1, 3, and 4 are not used in this model.
+        Function will populate BC_array and BC_value with the appropriate submodel boundary conditions
+        and values for the BC's (if applicable).
+    */
+
+    // Set some variables to help
+    int nCols, nRows;
+    nCols = mesh->numCellsX + 2;
+    nRows = mesh->numCellsY + 2;
+
+    // Get applied current density
+
+    double Area = mesh->numCellsX * oASSC->pixelRes;
+
+    double appliedCurrent = oASSC->currentDensity * Area;
+
+    /*
+        Different Methods to calculate flux:
+        
+        1: same flux every active surface
+        2: distance weighted
+        3: ? 
+    */
+
+    // Currently only (1) is coded
+
+    double flux;
+
+    flux = mesh->SA/(mesh->dx * mesh->dy);
+
+    // search for boundaries
+
+    int right, left, top, bottom;
+    // set col values for right and left
+    left = 0;
+    right = nCols - 1;
+
+    // set row values for top and bottom
+    top = 0;
+    bottom = nRows - 1;
+
+    // right and left boundaries (Neumann)
+
+    for (int i = 0; i < nRows; i++)
+    {
+        // right side
+        BC[i * nCols + right] = 5;          // Periodic
+        // left side
+        BC[i * nCols + left] = 5;           // Periodic
+    }
+
+    // top and bottom boundaries
+
+    for (int j = 0; j < nCols; j++)
+    {
+        // top
+        BC[top * nCols + j] = 2;
+        BC_value[top * nCols + j] = 0;
+        // bottom (have to check it is not AM)
+
+        BC[bottom * nCols + j] = 2;
+        BC_value[bottom * nCols + j] = -appliedCurrent;
+    }
+
+    return;
+}
+
 
 // Test function below
 
