@@ -308,6 +308,7 @@ void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
     }// end for
 
     // calculate SA and SSA
+    mesh->numFaces = (long int) SA;
     mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
     mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
 
@@ -422,6 +423,8 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     flux = mesh->SA/(mesh->dx * mesh->dy);
 
+    oASSC->faceFlux = appliedCurrent / mesh->numFaces;
+
     // search for boundaries
 
     int right, left, top, bottom;
@@ -453,7 +456,8 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
         // bottom (have to check it is not AM)
 
         BC[bottom * nCols + j] = 2;
-        BC_value[bottom * nCols + j] = -appliedCurrent;
+        // BC_value[bottom * nCols + j] = -appliedCurrent;
+        BC_value[bottom * nCols + j] = 0;   // test
     }
 
     return;
@@ -462,8 +466,7 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
 void disc2D_ASSC(options     *opts,
                 meshInfo    *mesh,
-                int         *BC,
-                double      *BC_Value,
+                ASSCopts    *oASSC,
                 double      *DC,
                 double      *Coeff,
                 double      *RHS,
@@ -474,8 +477,7 @@ void disc2D_ASSC(options     *opts,
         Inputs:
             - pointer to options struct
             - pointer to mesh struct
-            - pointer to BC (types)
-            - pointer to BC (values)
+            - pointer to ASSC opts
             - pointer to DC
             - pointer to Coefficient Matrix
             - pointer to RHS
@@ -513,17 +515,15 @@ void disc2D_ASSC(options     *opts,
         {
             Coeff[index*5 + 0] = 1;
             RHS[index] = 0;
+            continue;
         }
 
-        /*
-            Indexing for coeff marix:
-
-            0 : P       i
-            1 : W       i - 1
-            2 : E       i + 1
-            3 : S       i + nCols
-            4 : N       i - nCols
-        */
+        // make sure COeff and RHS are 0
+        RHS[index] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            Coeff[index * 5 + k] = 0;
+        }
 
         // Deal with current conditions
 
@@ -548,12 +548,89 @@ void disc2D_ASSC(options     *opts,
             tempE = col + 1;
         }
 
-        // East and West Discretization
+        /*
+            Indexing for coeff marix:
 
-        
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
 
+        // RHS
+
+        RHS[index] += 2.0 * (dx * dy)/dt * C0[index];
+
+        // West
+
+        if(DC[row * nCols + tempW] == 0)
+        {
+            RHS[index] += -oASSC->faceFlux;
+        }
+        else
+        {
+            dw = WeightedHarmonicMean(dx/2, dx/2, DC[index], DC[row * nCols + tempW]);
+            Coeff[index*5 + 1] = -dw * dx/dy;
+            Coeff[index*5 + 0] += dw * dx/dy;
+            RHS[index] -= Coeff[index*5 + 1] * C0[row * nCols + tempW];
+        }
+
+        // East
+
+        if(DC[row * nCols + tempE] == 0)
+        {
+            RHS[index] += oASSC->faceFlux;
+        }
+        else
+        {
+            de = WeightedHarmonicMean(dx/2, dx/2, DC[index], DC[row * nCols + tempE]);
+            Coeff[index*5 + 2] = -de * dx/dy;
+            Coeff[index*5 + 0] += de * dx/dy;
+            RHS[index] -= Coeff[index*5 + 2] * C0[row * nCols + tempE];
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if(DC[(row + 1) * nCols + col] == 0)
+            {
+                RHS[index] += -oASSC->faceFlux;
+            }
+            else
+            {
+                ds = WeightedHarmonicMean(dy/2, dy/2, DC[index], DC[(row + 1) * nCols + col]);
+                Coeff[index * 5 + 3] = -ds * dy / dx;
+                Coeff[index * 5 + 0] += ds * dy/dx;
+                RHS[index] -= Coeff[index*5 + 3] * C0[(row + 1) * nCols + col]; 
+            }
+        }
+
+        // North
+
+        if(row != 0)
+        {
+            if(DC[(row - 1) * nCols + col] == 0)
+            {
+                RHS[index] += oASSC->faceFlux;
+            }
+            else
+            {
+                dn = WeightedHarmonicMean(dy/2, dy/2, DC[(row - 1) * nCols + col], DC[index]);
+                Coeff[index * 5 + 4] = -dn * dy/dx;
+                Coeff[index * 5 + 0] += dn * dy/dx;
+                RHS[index] -= Coeff[index * 5 + 4] * C0[(row - 1) * nCols + col];
+            }
+        }
+
+        // P contribution from last time step
+
+        RHS[index] += -Coeff[index*5 + 0] * C0[index];
+        Coeff[index*5 + 0] += 2.0 * dx * dy / dt;
+
+        //end
     }
-
 
     return;
 }

@@ -116,7 +116,7 @@ int main(int argc, char **argv)
 
     // discretize
 
-    
+    disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0);
 
     // solve loop
 
