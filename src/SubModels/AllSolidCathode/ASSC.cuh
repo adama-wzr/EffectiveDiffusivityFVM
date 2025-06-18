@@ -10,6 +10,7 @@
 #include <Migration.cuh>
 #include <datastructures.cpp>
 #include <constants.cpp>
+#include <solvers.cuh>
 
 /*
 
@@ -214,6 +215,71 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
             oASSC->PB = (int)tempD;
         }
     }
+    return;
+}
+
+void saveCyt(meshInfo *mesh, double *Concentration, int step)
+{
+    /*
+        Function saveCyt:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to concentration array
+            - interger step
+        Outputs:
+            - none
+
+        The function will simply calculate the average concentration in each column,
+        thus returning the average concentration as function of y at a given time step.
+
+        The output folder is created if it doesn't exist, and the files names
+        are indexed by the simulations save-step number.
+    */
+
+    // folder and file names
+    char foldername[100];
+    char filename[100];
+
+    sprintf(foldername, "OutputCyt");
+    sprintf(filename, "Cyt_%05d.csv", step);
+
+    // check if folder exists
+    if (!std::filesystem::is_directory(foldername) || !std::filesystem::exists(foldername))
+    {
+        // create folder
+        std::filesystem::create_directory(foldername);
+    }
+
+    std::filesystem::path dir(foldername);
+    std::filesystem::path file(filename);
+    std::filesystem::path full_path = dir / file;
+
+    // open file and save cmap
+
+    FILE *OUT;
+
+    OUT = fopen(full_path.generic_string().c_str(), "w");
+
+    fprintf(OUT, "y,Cy\n");
+    long int count = 0;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        double avgC = 0;
+        count = 0;
+        for (int col = 0; col < mesh->numCellsX; col++)
+        {
+            if (Concentration[row * mesh->numCellsX + col] == 0)
+                continue;
+            count++;
+            avgC += Concentration[row * mesh->numCellsX + col];
+        }
+        avgC = (double)avgC / count;
+        fprintf(OUT, "%d,%1.3e\n", row, avgC);
+    }
+
+    fclose(OUT);
+
     return;
 }
 
@@ -423,7 +489,7 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     flux = mesh->SA/(mesh->dx * mesh->dy);
 
-    oASSC->faceFlux = appliedCurrent / mesh->numFaces;
+    oASSC->faceFlux = appliedCurrent /(opts->charge * FARADAY * mesh->numFaces);
 
     // search for boundaries
 
