@@ -754,6 +754,175 @@ void disc2D_ASSC(options     *opts,
     return;
 }
 
+
+int RHS_Up2D_ASSC(meshInfo   *mesh,
+                ASSCopts    *oASSC,
+                double      *DC,
+                double      *CoeffMatrix,
+                double      *RHS,
+                double      *C0)
+{
+
+    /*
+        Function RHS_Up2D_ASSC:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to oASSC options
+            - pointer to diffusion coefficient array.
+            - pointer to CoeffMatrix array
+            - pointer to RHS array
+            - pointer to concentration values array from previous time step
+        Outputs:
+            - None.
+        
+        Function will update the RHS matrix according to the values from previous time-step.
+        Unless there is an update to BCs, then the Coeff Matrix does not see any changes.
+    */
+
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy, dt;
+
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dt = mesh->dt;
+
+    int row, col;
+    long int BC_index;
+    double ap;
+
+    int tempE, tempW;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        if(DC[i] == 0)
+        {
+            // non-participating media does not need an update
+            continue;
+        }
+
+        // This means participating fluid and not a wall
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // Reset RHS
+        RHS[i] = 0;
+        ap = 0;
+
+        // Contribution from last time step
+
+        RHS[i] += 2.0 * (dx * dy)/dt * C0[i];
+
+        // get a_p = sum(a_nb)
+
+        for(int j = 1; j < 5; j++)
+        {
+            ap += -CoeffMatrix[i * 5 + j];
+        }
+
+        // Check all directions for BCs
+
+        // Get periodic BC's
+
+        if (col == 0)
+        {
+            // periodic West
+            tempW = mesh->numCellsX - 1;
+            tempE = col + 1;
+        } else if(col == mesh->numCellsX - 1)
+        {
+            // periodic East
+            tempW = col - 1;
+            tempE = 0;
+        }
+        else
+        {
+            // no boundaries
+            tempW = col - 1;
+            tempE = col + 1;
+        }
+
+        // West
+
+        if(DC[row * nCols + tempW] != 0)
+        {
+            // contribution from the last time-step
+            RHS[i] += -CoeffMatrix[i * 5  + 1] * C0[row * nCols + tempW];
+        }
+        else
+        {
+            // contribution from BC flux
+            RHS[i] += -oASSC->faceFlux;
+        }
+
+        // East
+
+        if(DC[row * nCols + tempE] != 0)
+        {
+            // contribution from last time-step
+            RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[row * nCols + tempE];
+        }
+        else
+        {
+            // contribution from BC Flux
+            RHS[i] += oASSC->faceFlux;
+        }
+
+        // South
+
+        if(row != mesh->numCellsY - 1)
+        {
+            if(DC[(row + 1) * nCols + col] == 0)
+            {
+                // BC flux
+                RHS[i] += -oASSC->faceFlux;
+            }
+            else
+            {
+                // prev. step contribution
+                RHS[i] -= CoeffMatrix[i * 5 + 3] * C0[(row + 1) * nCols + col];
+            }
+        }
+
+        // North
+
+        if (row != 0)
+        {
+            if(DC[(row - 1) * nCols + col] == 0)
+            {
+                // BC flux
+                RHS[i] += oASSC->faceFlux;
+            }
+            else
+            {
+                // prev. step contribution
+                RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[(row - 1) * nCols + col];
+            }
+        }
+        
+        // last contribution is ap
+
+        RHS[i] += -ap * C0[i];
+    }
+
+    return 0;
+}
+
 // Test function below
 
 void test_funct(void)
