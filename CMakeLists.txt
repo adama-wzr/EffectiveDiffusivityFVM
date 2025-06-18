@@ -97,6 +97,7 @@ include_directories(
     # "${PROJECT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src_GPU"
     "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_SOURCE_DIR}/src/Solvers/"
     "${PROJECT_SOURCE_DIR}/src/SubModels/Migration"
     "${PROJECT_SOURCE_DIR}/src/SubModels/AllSolidCathode"
     "${PROJECT_SOURCE_DIR}/src/SubModels/TransientSweepSimulatedDiffusimetry"
