@@ -52,6 +52,7 @@ typedef struct
     int C_or_D;            // charge (0) or discharge (1)
     // not inputs
     double AM_VF;           // volume fraction of active material
+    double faceFlux;        // fixed face flux (is the applied current divided by nFaces)
 } ASSCopts;
 
 #endif

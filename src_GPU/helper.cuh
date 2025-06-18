@@ -30,7 +30,7 @@ Code contributors:
 Andre Adam.
 
 Last Update:
-04/21/2025
+06/18/2025
 
 */
 
@@ -140,6 +140,7 @@ typedef struct
     double currentTime;
     long int iterCount;
     double conv;
+    long int numFaces;
     double SA;
     double SSA;
 } meshInfo;
