@@ -115,8 +115,41 @@ int main(int argc, char **argv)
     SetBC_ASSC(&opts, &mesh, &oASSC, simData, BC, BC_Value);
 
     // discretize
-
     disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0);
+
+    /*
+        GPU Stuff:
+    */
+
+    // Declare needed arrays
+
+    double *d_Coeff = NULL;
+    double *d_RHS = NULL;
+    double *d_Conc = NULL;
+    double *d_ConcTemp = NULL;
+
+    // Now we confirm that there is a match in GPUs available and user expectations
+
+    if (opts.useGPU)
+    {
+        int nDevices;
+        cudaGetDeviceCount(&nDevices);
+
+        if (nDevices < 1)
+        {
+            printf("No CUDA-capable GPU Detected! Exiting...\n");
+            return 1;
+        }
+        else if (nDevices < opts.nGPU)
+        {
+            printf("User requested %d GPUs, but only %d were detected.\n", opts.nGPU, nDevices);
+            printf("Proceeding with %d GPUs\n", nDevices);
+            opts.nGPU = nDevices;
+        }
+
+        // Initialize the GPU arrays
+        initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
+    }
 
     // solve loop
 
@@ -125,6 +158,80 @@ int main(int argc, char **argv)
     int step = 0;
 
     double timeToCheck = oASSC.stepTime;
+
+    // save C(y,t)
+
+    saveCyt_ASSC(&mesh, Conc, step);
+
+    double SOC = 0;
+
+    while (mesh.currentTime <= oASSC.totalTime)
+    {
+        // Update SOC
+        SOC = mesh.currentTime / oASSC.totalTime * 100;
+
+
+        // not using GITT data
+        if (mesh.currentTime != 0)
+        {
+            // coefficient matrix is still good, just update the RHS
+            // RHS_Update2D(&mesh, BC, BC_Value, CoeffMatrix, RHS, C0);
+        }
+
+
+        if (opts.useGPU == 0)
+        {
+            // CPU Solve
+            // omp_set_num_threads(opts.nThreads);
+
+            // GS2D_OMP(Coeff, RHS, Conc, &opts, &mesh);
+            printf("Not Currently Implemented, returning...\n");
+            return 1;
+        }
+        else
+        {
+            // GPU Solve
+            if (mesh.currentTime == 0)
+            {
+                JI2D_PBx_GPU(Coeff, RHS, Conc, d_Coeff,
+                             d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+            }
+            else
+            {
+                JI2D_TransientUpdate_PBx(RHS, Conc, d_Coeff,
+                                         d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
+            }
+        }
+
+        // Update time
+        mesh.currentTime += mesh.dt;
+
+        // Copy new concentration into C0
+        memcpy(C0, Conc, sizeof(double) * mesh.nElements);
+
+        // save data if necessary
+        if (mesh.currentTime > timeToCheck)
+        {
+            timeToCheck += oASSC.stepTime;
+            step++;
+
+            saveCyt_ASSC(&mesh, Conc, step);
+            if (opts.verbose)
+                printf("Time = %1.3e\n", mesh.currentTime);
+            
+            // check NaN's
+            for(int i = 0; i < mesh.nElements; i++)
+            {
+                if(Conc[i] != Conc[i])
+                {
+                    printf("Found NaN at %d, time %1.3e\n", i, mesh.currentTime);
+                    return 1;
+                }
+            }
+        }
+    }
+
+    printCandF_ASSC(&opts, &oASSC, &mesh, DC, Conc);
 
     test_funct();
 

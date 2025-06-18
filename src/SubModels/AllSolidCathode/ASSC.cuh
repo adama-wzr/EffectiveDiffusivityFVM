@@ -10,7 +10,7 @@
 #include <Migration.cuh>
 #include <datastructures.cpp>
 #include <constants.cpp>
-#include <solvers.cuh>
+#include <solvers_2D.cuh>
 
 /*
 
@@ -218,10 +218,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     return;
 }
 
-void saveCyt(meshInfo *mesh, double *Concentration, int step)
+void saveCyt_ASSC(meshInfo *mesh, double *Concentration, int step)
 {
     /*
-        Function saveCyt:
+        Function saveCyt_ASSC:
         Inputs:
             - pointer to mesh struct
             - pointer to concentration array
@@ -279,6 +279,59 @@ void saveCyt(meshInfo *mesh, double *Concentration, int step)
     }
 
     fclose(OUT);
+
+    return;
+}
+
+void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC, double *C)
+{
+    /*
+        Function printCandF_ASSC:
+        Inputs:
+            - pointer to options struct
+            - pointer to oASSC struct
+            - pointer to mesh struct
+            - pointer to diffusion coefficients
+            - pointer to Concentration
+        Outputs:
+            - None.
+        
+        Based on simulation data, the concentration and flux distributions will
+        be printed. FLUX NOT IMPLEMENTED YET!
+    */
+
+    printf("Printing Concentration map (fluxes not available yet)\n");
+
+    // Open File
+    FILE *MAP = fopen("sampleMaps.csv", "w+");
+
+    fprintf(MAP, "x,y,C\n");
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            // temporary storage
+            int index = row * mesh->numCellsX + col;
+
+            // If pore, skip
+
+            // if (DC[index] == 0)
+            // {
+            //     fprintf(MAP, "%d,%d,%1.3e,%1.3e,%1.3e\n", col, row, 0.0f);
+            //     continue;
+            // }
+
+            // print
+            fprintf(MAP, "%d,%d,%1.3e\n", col, row, C[index]);
+
+
+        } //endfor
+    }
+
+    // close file
+
+    fclose(MAP);
 
     return;
 }

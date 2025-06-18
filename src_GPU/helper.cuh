@@ -4391,7 +4391,7 @@ int JI2D_TransientUpdate(
              meshInfo   *mesh)
 {
     /*
-        Function JI2D_SOR:
+        Function JI2D_TransientUpdate:
         Inputs:
             - pointer to RHS matrix array
             - pointer to Concentration distribution array
