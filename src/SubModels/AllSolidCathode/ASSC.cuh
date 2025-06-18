@@ -274,7 +274,10 @@ void saveCyt_ASSC(meshInfo *mesh, double *Concentration, int step)
             count++;
             avgC += Concentration[row * mesh->numCellsX + col];
         }
-        avgC = (double)avgC / count;
+        if (count != 0)
+            avgC = (double)avgC / count;
+        else
+            avgC = 0;
         fprintf(OUT, "%d,%1.3e\n", row, avgC);
     }
 
@@ -295,21 +298,21 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
             - pointer to Concentration
         Outputs:
             - None.
-        
+
         Based on simulation data, the concentration and flux distributions will
         be printed. FLUX NOT IMPLEMENTED YET!
     */
-
-    printf("Printing Concentration map (fluxes not available yet)\n");
+    if (opts->verbose)
+        printf("Printing Concentration map (fluxes not available yet)\n");
 
     // Open File
     FILE *MAP = fopen("sampleMaps.csv", "w+");
 
     fprintf(MAP, "x,y,C\n");
 
-    for(int row = 0; row < mesh->numCellsY; row++)
+    for (int row = 0; row < mesh->numCellsY; row++)
     {
-        for(int col = 0; col < mesh->numCellsX; col++)
+        for (int col = 0; col < mesh->numCellsX; col++)
         {
             // temporary storage
             int index = row * mesh->numCellsX + col;
@@ -325,8 +328,7 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
             // print
             fprintf(MAP, "%d,%d,%1.3e\n", col, row, C[index]);
 
-
-        } //endfor
+        } // endfor
     }
 
     // close file
@@ -914,7 +916,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[(row - 1) * nCols + col];
             }
         }
-        
+
         // last contribution is ap
 
         RHS[i] += -ap * C0[i];
