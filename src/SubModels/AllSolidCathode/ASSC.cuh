@@ -701,7 +701,7 @@ void disc2D_ASSC(options     *opts,
 
         if(DC[row * nCols + tempE] == 0)
         {
-            RHS[index] += oASSC->faceFlux;
+            RHS[index] += -oASSC->faceFlux;
         }
         else
         {
@@ -734,7 +734,7 @@ void disc2D_ASSC(options     *opts,
         {
             if(DC[(row - 1) * nCols + col] == 0)
             {
-                RHS[index] += oASSC->faceFlux;
+                RHS[index] += -oASSC->faceFlux;
             }
             else
             {
@@ -882,7 +882,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
         else
         {
             // contribution from BC Flux
-            RHS[i] += oASSC->faceFlux;
+            RHS[i] += -oASSC->faceFlux;
         }
 
         // South
@@ -908,7 +908,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             if(DC[(row - 1) * nCols + col] == 0)
             {
                 // BC flux
-                RHS[i] += oASSC->faceFlux;
+                RHS[i] += -oASSC->faceFlux;
             }
             else
             {
