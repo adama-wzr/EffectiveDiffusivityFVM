@@ -30,7 +30,7 @@ Code contributors:
 Andre Adam.
 
 Last Update:
-04/21/2025
+06/18/2025
 
 */
 
@@ -140,6 +140,7 @@ typedef struct
     double currentTime;
     long int iterCount;
     double conv;
+    long int numFaces;
     double SA;
     double SSA;
 } meshInfo;
@@ -4390,7 +4391,7 @@ int JI2D_TransientUpdate(
              meshInfo   *mesh)
 {
     /*
-        Function JI2D_SOR:
+        Function JI2D_TransientUpdate:
         Inputs:
             - pointer to RHS matrix array
             - pointer to Concentration distribution array

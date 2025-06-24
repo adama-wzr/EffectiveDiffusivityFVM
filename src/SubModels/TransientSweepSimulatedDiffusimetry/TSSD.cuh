@@ -515,6 +515,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
         2 : Neumann
         3 : Robin
         4 : Mixed
+        5 : Periodic
 
         Note: 1, 3, and 4 are not used in this model.
     */
@@ -585,7 +586,7 @@ void SetBC_TSSD2D(options *opts, TSSDopts *oTSSD, meshInfo *mesh, int *BC, doubl
 
 /*
 
-Flood Fill Setup:
+    Flood Fill Setup:
 
 */
 
