@@ -49,7 +49,7 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
 
     printf("Pixel Resolution: %1.3e\n", oASSC->pixelRes);
 
-    printf("Current Density: %1.3f A/m^2\n", oASSC->currentDensity);
+    printf("Current Density: %1.3e A/m^2\n", oASSC->currentDensity);
 
     if (oASSC->C_or_D)
         printf("Simulating Charge Step\n");
@@ -430,7 +430,7 @@ void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
 
     // calculate SA and SSA
     mesh->numFaces = (long int) SA;
-    mesh->SA = SA * mesh->dx * mesh->dy;                // number of faces times face area
+    mesh->SA = SA * mesh->dx;                           // number of faces times face area
     mesh->SSA = (double) mesh->SA / mesh->nElements;    // SA divided by volume
 
     return;
@@ -527,6 +527,8 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
     // Get applied current density
 
     double Area = mesh->numCellsX * oASSC->pixelRes;
+    // double Area = PI * pow(0.002, 2);
+    // double Area = 0.002;
 
     double appliedCurrent = oASSC->currentDensity * Area;
 
@@ -544,7 +546,7 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     flux = mesh->SA/(mesh->dx * mesh->dy);
 
-    oASSC->faceFlux = appliedCurrent /(opts->charge * FARADAY * mesh->numFaces);
+    oASSC->faceFlux = appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
 
     // search for boundaries
 
