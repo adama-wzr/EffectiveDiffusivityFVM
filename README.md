@@ -9,7 +9,7 @@ For more detailed information about the code itself, refer to the documentation 
 1. [Requirements](#requirements)
 2. [GPU Compilation](#gpu-compilation)
 3. [Required Files](#required-files)
-4. [How to Cite](#how-to-cite)
+4. [How to Cite](#publications)
 5. [Authors](#code-authors)
 6. [Documentation](#documentation)
 7. [Acknowledgements](#acknowledgements)
