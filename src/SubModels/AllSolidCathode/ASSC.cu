@@ -111,6 +111,14 @@ int main(int argc, char **argv)
         C0[i] = oASSC.C0;   // mol/m^3
     }
 
+    // subdomains
+
+    char *subDomain = (char *)malloc(sizeof(char) * mesh.nElements);
+
+    memset(subDomain, 0, sizeof(char) * mesh.nElements);
+
+    ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
+
     // set BCs
     SetBC_ASSC(&opts, &mesh, &oASSC, simData, BC, BC_Value);
 

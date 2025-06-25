@@ -53,6 +53,7 @@ typedef struct
     // not inputs
     double AM_VF;           // volume fraction of active material
     double faceFlux;        // fixed face flux (is the applied current divided by nFaces)
+    int nSubDomains;        // number of AM sub-domains
 } ASSCopts;
 
 #endif

@@ -344,6 +344,182 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
 
 */
 
+void ASSC2D_subDomainFF(meshInfo *mesh, ASSCopts *oASSC, char *simData, char *subDomain)
+{
+    /*
+        ASSC2D_subDomainFF:
+        Inputs:
+            - pointer to meshInfo
+            - pointer to ASSC options
+            - pointer to simData
+        Outputs:
+            - none
+        
+        Function will use a flood-fill approach to characterize the number of
+        independent active material (AM) subdomains. The information is stored
+        in the subDomain array.
+    */
+
+    // make sure all entries in subDomain are -1
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        subDomain[i] = -1;
+    }
+
+    // at the first point we find AM, set the counter to 1 and start the FF
+
+    bool scan = true;
+    
+    int lastIdxChecked = 0;
+    int nDomains = 0;
+
+    int row, col;
+
+    std::set<coordPair> cList;
+
+    while (scan)
+    {
+        // find any solids that haven't been assigned yet
+        for(int i = lastIdxChecked; i < mesh->nElements; i++)
+        {
+            if (simData[i] == oASSC->POI && subDomain[i] == -1)
+            {
+                lastIdxChecked = i;
+
+                // open lists and assign starting point
+
+                row = lastIdxChecked / mesh->numCellsX;
+                col = lastIdxChecked - mesh->numCellsX * row;
+
+                cList.insert(std::pair(col, row));
+
+                // increase subdomain number
+                nDomains++;
+                subDomain[i] = nDomains;
+
+                break;
+            }
+        }
+
+        if (cList.empty())
+        {
+            scan = false;
+        }
+
+        
+
+        while (!cList.empty())
+        {
+            // pop first item on the list
+            coordPair pop = *cList.begin();
+
+            // remove the item we just popped
+            cList.erase(cList.begin());
+
+            // read coordinates
+            col = pop.first;
+            row = pop.second;
+
+            /*
+                We need to check North, South, East, and West for more fluid:
+
+                North = col + 0, row - 1
+                South = col + 0, row + 1
+                East  = col + 1, row + 0
+                West  = col - 1, row + 0
+
+                Note that diagonals are not considered a connection.
+                If the user asks for periodic BCs, they are accounted for.
+            */
+
+            int tempRow, tempCol;
+            long int tempIdx;
+
+            // North
+
+            tempCol = col;
+
+            if (row > 0)
+            {
+                tempRow = row - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // South
+
+            if (row < mesh->numCellsY - 1)
+            {
+                tempRow = row + 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // East
+
+            tempRow = row;
+
+            if (col < mesh->numCellsX - 1)
+            {
+                tempCol = col + 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+            else if(col == mesh->numCellsX - 1 && oASSC->PB)
+            {
+                tempCol = 0;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // West
+
+            if (col > 0)
+            {
+                tempCol = col - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+            else if(col == 0 && oASSC->PB)
+            {
+                tempCol = mesh->numCellsX - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+        } //end while
+    }
+
+    oASSC->nSubDomains = nDomains;
+
+    return;
+}
+
+
 void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
 {
     /*
