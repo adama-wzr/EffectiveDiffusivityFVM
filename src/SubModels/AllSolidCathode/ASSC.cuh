@@ -993,7 +993,9 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 double      *CoeffMatrix,
                 double      *RHS,
                 double      *C0,
-                char        *simData)
+                char        *simData,
+                char        *subDomain,
+                double      *subAvgC)
 {
 
     /*
@@ -1006,6 +1008,8 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             - pointer to RHS array
             - pointer to concentration values array from previous time step
             - pointer to simData array.
+            - pointer to subDomain labels
+            - pointer to subDomain average concentration
         Outputs:
             - None.
         
@@ -1069,6 +1073,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             ap += -CoeffMatrix[i * 5 + j];
         }
 
+        // get subdomain idx
+
+        int subIdx = subDomain[i] - 1;
+        double avgC = subAvgC[subIdx];
+
         // Check all directions for BCs
 
         // Get periodic BC's
@@ -1098,7 +1107,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5  + 1] * C0[row * nCols + tempW];
         }
-        else if(simData[row * nCols + tempW] == 1)
+        else if(simData[row * nCols + tempW] == 1 && avgC > 5000)
         {
             // contribution from BC flux
             RHS[i] += -oASSC->faceFlux;
@@ -1111,7 +1120,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[row * nCols + tempE];
         }
-        else if(simData[row * nCols + tempE] == 1)
+        else if(simData[row * nCols + tempE] == 1 && avgC > 5000)
         {
             // contribution from BC Flux
             RHS[i] += -oASSC->faceFlux;
@@ -1121,7 +1130,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if(row != mesh->numCellsY - 1)
         {
-            if(simData[(row + 1) * nCols + col] == 1)
+            if(simData[(row + 1) * nCols + col] == 1 && avgC > 5000)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;
@@ -1137,7 +1146,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if (row != 0)
         {
-            if(simData[(row - 1) * nCols + col] == 1)
+            if(simData[(row - 1) * nCols + col] == 1 && avgC > 5000)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;

@@ -195,7 +195,7 @@ int main(int argc, char **argv)
         if (mesh.currentTime != 0)
         {
             // coefficient matrix is still good, just update the RHS
-            RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData);
+            RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
         }
 
 
