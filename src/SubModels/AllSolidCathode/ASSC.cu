@@ -135,7 +135,7 @@ int main(int argc, char **argv)
     SetBC_ASSC(&opts, &mesh, &oASSC, simData, BC, BC_Value);
 
     // discretize
-    disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, subDomain, subDomainAvgC);
+    disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
 
     /*
         GPU Stuff:
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
         if (mesh.currentTime != 0)
         {
             // coefficient matrix is still good, just update the RHS
-            RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0);
+            RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData);
         }
 
 

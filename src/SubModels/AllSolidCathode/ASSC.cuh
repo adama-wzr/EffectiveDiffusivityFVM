@@ -814,6 +814,7 @@ void disc2D_ASSC(options     *opts,
                 double      *Coeff,
                 double      *RHS,
                 double      *C0,
+                char        *simData,
                 char        *subDomain,
                 double      *subAvgC)
 {
@@ -827,6 +828,7 @@ void disc2D_ASSC(options     *opts,
             - pointer to Coefficient Matrix
             - pointer to RHS
             - pointer to concentration dist. at last time-step
+            - pointer to simData (phase-spec) array
             - pointer to subDomain array
             - pointer to subAvgC
         Outputs:
@@ -913,7 +915,7 @@ void disc2D_ASSC(options     *opts,
 
         // West
 
-        if(DC[row * nCols + tempW] == 0)
+        if(simData[row * nCols + tempW] == 1)
         {
             RHS[index] += -oASSC->faceFlux;
         }
@@ -927,7 +929,7 @@ void disc2D_ASSC(options     *opts,
 
         // East
 
-        if(DC[row * nCols + tempE] == 0)
+        if(simData[row * nCols + tempE] == 1)
         {
             RHS[index] += -oASSC->faceFlux;
         }
@@ -943,7 +945,7 @@ void disc2D_ASSC(options     *opts,
 
         if (row != mesh->numCellsY - 1)
         {
-            if(DC[(row + 1) * nCols + col] == 0)
+            if(simData[(row + 1) * nCols + col] == 1)
             {
                 RHS[index] += -oASSC->faceFlux;
             }
@@ -960,7 +962,7 @@ void disc2D_ASSC(options     *opts,
 
         if(row != 0)
         {
-            if(DC[(row - 1) * nCols + col] == 0)
+            if(simData[(row - 1) * nCols + col] == 1)
             {
                 RHS[index] += -oASSC->faceFlux;
             }
@@ -990,7 +992,8 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 double      *DC,
                 double      *CoeffMatrix,
                 double      *RHS,
-                double      *C0)
+                double      *C0,
+                char        *simData)
 {
 
     /*
@@ -1002,6 +1005,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             - pointer to CoeffMatrix array
             - pointer to RHS array
             - pointer to concentration values array from previous time step
+            - pointer to simData array.
         Outputs:
             - None.
         
@@ -1094,7 +1098,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5  + 1] * C0[row * nCols + tempW];
         }
-        else
+        else if(simData[row * nCols + tempW] == 1)
         {
             // contribution from BC flux
             RHS[i] += -oASSC->faceFlux;
@@ -1107,7 +1111,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[row * nCols + tempE];
         }
-        else
+        else if(simData[row * nCols + tempE] == 1)
         {
             // contribution from BC Flux
             RHS[i] += -oASSC->faceFlux;
@@ -1117,12 +1121,12 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if(row != mesh->numCellsY - 1)
         {
-            if(DC[(row + 1) * nCols + col] == 0)
+            if(simData[(row + 1) * nCols + col] == 1)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;
             }
-            else
+            else if(DC[(row + 1) * nCols + col] != 0)
             {
                 // prev. step contribution
                 RHS[i] -= CoeffMatrix[i * 5 + 3] * C0[(row + 1) * nCols + col];
@@ -1133,12 +1137,12 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if (row != 0)
         {
-            if(DC[(row - 1) * nCols + col] == 0)
+            if(simData[(row - 1) * nCols + col] == 1)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;
             }
-            else
+            else if(DC[(row - 1) * nCols + col] != 0)
             {
                 // prev. step contribution
                 RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[(row - 1) * nCols + col];
