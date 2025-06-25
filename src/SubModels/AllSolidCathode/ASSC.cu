@@ -119,11 +119,23 @@ int main(int argc, char **argv)
 
     ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+    // create arrays based on the number of subdomains
+
+    int *subSize = (int *) malloc(sizeof(int) * oASSC.nSubDomains);
+    double *subDomainAvgC = (double *)malloc(sizeof(double) * oASSC.nSubDomains);
+
+    memset(subSize, 0, sizeof(int) * oASSC.nSubDomains);
+    memset(subDomainAvgC, 0, sizeof(double) * oASSC.nSubDomains);
+
+    // check size and avg C
+
+    subAvgC_ASSC2D(&mesh, &oASSC, C0, subDomain, subSize, subDomainAvgC);
+
     // set BCs
     SetBC_ASSC(&opts, &mesh, &oASSC, simData, BC, BC_Value);
 
     // discretize
-    disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0);
+    disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, subDomain, subDomainAvgC);
 
     /*
         GPU Stuff:

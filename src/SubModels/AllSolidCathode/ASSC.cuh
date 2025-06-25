@@ -762,6 +762,50 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
     return;
 }
 
+void subAvgC_ASSC2D(meshInfo    *mesh,
+                    ASSCopts    *oASSC,
+                    double      *C0,
+                    char        *subDomain,
+                    int         *subSize,
+                    double      *subC)
+{
+    /*
+        Function subAvgC_ASSC2D:
+        Inputs:
+            - pointer to the mesh struct
+            - pointer to the oASSC struct
+            - pointer to concentration array
+            - pointer to subDomain classification array
+            - pointer to sub-domain size array
+            - pointer to sub-domain average concentration array
+        Outputs:
+            - none
+
+        Function will calculate the size of each subdomain and calculate
+        the average concentration in each subdomain.
+    */
+
+    for(int index = 0; index < mesh->nElements; index++)
+    {
+        if (subDomain[index] == -1)
+            continue;
+
+        // Now we know this is some subdomain
+
+        int subIdx = subDomain[index] - 1;
+
+        subSize[subIdx]++;
+        subC[subIdx] += C0[index];
+    }
+
+    // Average and print
+    for(int index = 0; index < oASSC->nSubDomains; index++)
+    {
+        subC[index] = (double)subC[index] / subSize[index];
+    }
+
+    return;
+}
 
 void disc2D_ASSC(options     *opts,
                 meshInfo    *mesh,
@@ -769,7 +813,9 @@ void disc2D_ASSC(options     *opts,
                 double      *DC,
                 double      *Coeff,
                 double      *RHS,
-                double      *C0)
+                double      *C0,
+                char        *subDomain,
+                double      *subAvgC)
 {
     /*
         Function disc2D_ASSC:
@@ -781,6 +827,8 @@ void disc2D_ASSC(options     *opts,
             - pointer to Coefficient Matrix
             - pointer to RHS
             - pointer to concentration dist. at last time-step
+            - pointer to subDomain array
+            - pointer to subAvgC
         Outputs:
             - None.
         
@@ -805,6 +853,8 @@ void disc2D_ASSC(options     *opts,
 
     int tempE, tempW;
 
+    int sdIdx;
+
     // main loop
 
     for(int index = 0; index < mesh->nElements; index++)
@@ -817,7 +867,7 @@ void disc2D_ASSC(options     *opts,
             continue;
         }
 
-        // make sure COeff and RHS are 0
+        // make sure Coeff and RHS are 0
         RHS[index] = 0;
         for (int k = 0; k < 5; k++)
         {
