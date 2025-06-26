@@ -70,7 +70,9 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     }else if(oASSC->mode == 1)
     {
         printf("(Tortuosity Weighed)\n");
-        printf("TauLi = %1.3e, TauE = %1.3e", oASSC->TauLi, oASSC->TauE);
+        oASSC->TauE = oASSC->TauE;
+        oASSC->TauLi = oASSC->TauLi;
+        printf("TauLi = %1.3e, TauE = %1.3e\n", oASSC->TauLi, oASSC->TauE);
         oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
     }
 
@@ -361,6 +363,67 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
     // close file
 
     fclose(MAP);
+
+    return;
+}
+
+
+/*
+
+    Other auxiliary functions:
+
+*/
+
+double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
+{
+    /*
+        Function mode1_penalty_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - distance (in pixels) from current collector
+            - distance (in pixels) from solid electrolyte
+        Outputs:
+            - directly outputs the weighting factor.
+    */
+    
+    double w = 0;
+
+    w = 1 - pow((oASSC->TauE*dcc - oASSC->TauLi*dse),2) / 
+                pow((oASSC->TauMax*mesh->numCellsY),2);
+
+    return w;
+}
+
+void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
+{
+    /*
+        Function fixC_ASSC2D:
+        Inputs:
+            - pointer to struct mesh info
+            - pointer to diffusion coefficient array
+            - pointer to concentration array
+        Outputs:
+            - none
+        
+        For some small particles (a single pixel), the fluxes are too large
+        compared to the amount of Li available. This can generate issues in
+        the first iteration. This function here will regularize the Li 
+        concentration after the first iteration to make sure these particles
+        are just below the threshold for depletion while not having a negative
+        concentration.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if (DC[i] == 0)
+            continue;
+        
+        if (Conc[i] < 0)
+        {
+            Conc[i] = 100;
+        }
+    }
 
     return;
 }
@@ -944,7 +1007,15 @@ void disc2D_ASSC(options     *opts,
 
         if(simData[row * nCols + tempW] == 1)
         {
-            RHS[index] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[index] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[index] += -2 * oASSC->faceFlux *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
         else
         {
@@ -958,7 +1029,15 @@ void disc2D_ASSC(options     *opts,
 
         if(simData[row * nCols + tempE] == 1)
         {
-            RHS[index] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[index] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[index] += -2*oASSC->faceFlux *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
         else
         {
@@ -974,7 +1053,15 @@ void disc2D_ASSC(options     *opts,
         {
             if(simData[(row + 1) * nCols + col] == 1)
             {
-                RHS[index] += -oASSC->faceFlux;
+                if (oASSC->mode == 0)
+                {
+                    RHS[index] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[index] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else
             {
@@ -991,7 +1078,15 @@ void disc2D_ASSC(options     *opts,
         {
             if(simData[(row - 1) * nCols + col] == 1)
             {
-                RHS[index] += -oASSC->faceFlux;
+                if (oASSC->mode == 0)
+                {
+                    RHS[index] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[index] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else
             {
@@ -1137,7 +1232,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
         else if(simData[row * nCols + tempW] == 1 && avgC > 300)
         {
             // contribution from BC flux
-            RHS[i] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[i] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[i] += -2*oASSC->faceFlux *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // East
@@ -1149,8 +1252,16 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
         }
         else if(simData[row * nCols + tempE] == 1 && avgC > 300)
         {
-            // contribution from BC Flux
-            RHS[i] += -oASSC->faceFlux;
+            // contribution from BC flux
+            if (oASSC->mode == 0)
+            {
+                RHS[i] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[i] += -2*oASSC->faceFlux *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // South
@@ -1159,8 +1270,16 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
         {
             if(simData[(row + 1) * nCols + col] == 1 && avgC > 300)
             {
-                // BC flux
-                RHS[i] += -oASSC->faceFlux;
+                // contribution from BC flux
+                if (oASSC->mode == 0)
+                {
+                    RHS[i] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[i] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else if(DC[(row + 1) * nCols + col] != 0)
             {
@@ -1175,8 +1294,16 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
         {
             if(simData[(row - 1) * nCols + col] == 1 && avgC > 300)
             {
-                // BC flux
-                RHS[i] += -oASSC->faceFlux;
+                // contribution from BC flux
+                if (oASSC->mode == 0)
+                {
+                    RHS[i] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[i] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else if(DC[(row - 1) * nCols + col] != 0)
             {
@@ -1193,65 +1320,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
     return 0;
 }
 
-/*
 
-    Other auxiliary functions:
-
-*/
-
-double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
-{
-    /*
-        Function mode1_penalty_ASSC2D:
-        Inputs:
-            - pointer to ASSC options struct
-            - pointer to mesh struct
-            - distance (in pixels) from current collector
-            - distance (in pixels) from solid electrolyte
-        Outputs:
-            - directly outputs the weighting factor.
-    */
-    
-    double w = 0;
-
-    w = 1 - pow((oASSC->TauE*dcc - oASSC->TauLi*dse),2) / 
-                pow((oASSC->TauMax*mesh->numCellsY),2);
-
-    return w;
-}
-
-void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
-{
-    /*
-        Function fixC_ASSC2D:
-        Inputs:
-            - pointer to struct mesh info
-            - pointer to diffusion coefficient array
-            - pointer to concentration array
-        Outputs:
-            - none
-        
-        For some small particles (a single pixel), the fluxes are too large
-        compared to the amount of Li available. This can generate issues in
-        the first iteration. This function here will regularize the Li 
-        concentration after the first iteration to make sure these particles
-        are just below the threshold for depletion while not having a negative
-        concentration.
-    */
-
-    for(int i = 0; i < mesh->nElements; i++)
-    {
-        if (DC[i] == 0)
-            continue;
-        
-        if (Conc[i] < 0)
-        {
-            Conc[i] = 100;
-        }
-    }
-
-    return;
-}
 
 // Test function below
 
