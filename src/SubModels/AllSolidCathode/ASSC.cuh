@@ -1107,7 +1107,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5  + 1] * C0[row * nCols + tempW];
         }
-        else if(simData[row * nCols + tempW] == 1 && avgC > 5000)
+        else if(simData[row * nCols + tempW] == 1 && avgC > 300)
         {
             // contribution from BC flux
             RHS[i] += -oASSC->faceFlux;
@@ -1120,7 +1120,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[row * nCols + tempE];
         }
-        else if(simData[row * nCols + tempE] == 1 && avgC > 5000)
+        else if(simData[row * nCols + tempE] == 1 && avgC > 300)
         {
             // contribution from BC Flux
             RHS[i] += -oASSC->faceFlux;
@@ -1130,7 +1130,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if(row != mesh->numCellsY - 1)
         {
-            if(simData[(row + 1) * nCols + col] == 1 && avgC > 5000)
+            if(simData[(row + 1) * nCols + col] == 1 && avgC > 300)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;
@@ -1146,7 +1146,7 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if (row != 0)
         {
-            if(simData[(row - 1) * nCols + col] == 1 && avgC > 5000)
+            if(simData[(row - 1) * nCols + col] == 1 && avgC > 300)
             {
                 // BC flux
                 RHS[i] += -oASSC->faceFlux;
@@ -1164,6 +1164,40 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
     }
 
     return 0;
+}
+
+
+void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
+{
+    /*
+        Function fixC_ASSC2D:
+        Inputs:
+            - pointer to struct mesh info
+            - pointer to diffusion coefficient array
+            - pointer to concentration array
+        Outputs:
+            - none
+        
+        For some small particles (a single pixel), the fluxes are too large
+        compared to the amount of Li available. This can generate issues in
+        the first iteration. This function here will regularize the Li 
+        concentration after the first iteration to make sure these particles
+        are just below the threshold for depletion while not having a negative
+        concentration.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if (DC[i] == 0)
+            continue;
+        
+        if (Conc[i] < 0)
+        {
+            Conc[i] = 100;
+        }
+    }
+
+    return;
 }
 
 // Test function below

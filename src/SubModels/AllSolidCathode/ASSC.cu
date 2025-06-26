@@ -235,7 +235,11 @@ int main(int argc, char **argv)
             timeToCheck += oASSC.stepTime;
             step++;
 
+            // regularize negative concentrations
+            fixC_ASSC2D(&mesh, DC, Conc);
+            // save avg C(y,t)
             saveCyt_ASSC(&mesh, Conc, step);
+            
             if (opts.verbose)
                 printf("Time = %1.3e\n", mesh.currentTime);
             
