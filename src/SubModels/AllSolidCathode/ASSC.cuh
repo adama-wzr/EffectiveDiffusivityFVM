@@ -63,6 +63,19 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     printf("            Simulation Options:             \n\n");
     printf("--------------------------------------------\n\n");
 
+    printf("Reaction Control Mode: %d ", oASSC->mode);
+    if(oASSC->mode == 0)
+    {
+        printf("(constant)\n");
+    }else if(oASSC->mode == 1)
+    {
+        printf("(Tortuosity Weighed)\n");
+        oASSC->TauE = oASSC->TauE;
+        oASSC->TauLi = oASSC->TauLi;
+        printf("TauLi = %1.3e, TauE = %1.3e\n", oASSC->TauLi, oASSC->TauE);
+        oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
+    }
+
     // mesh amplificaiton
 
     printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
@@ -145,6 +158,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->D0 = 1;
     oASSC->CMax = 1e15;
     oASSC->C0 = 1e4;    // mol/m^3
+    oASSC->mode = 0;    // constant reaction rate
+
+    oASSC->TauE = 1;
+    oASSC->TauLi = 1;
 
     /*
     --------------------------------------------------------------------------------
@@ -213,6 +230,18 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if(strcmp(tempC, "PB:") == 0)
         {
             oASSC->PB = (int)tempD;
+        }
+        else if(strcmp(tempC, "Mode:") == 0)
+        {
+            oASSC->mode = (int)tempD;
+        }
+        else if(strcmp(tempC, "TauE:") == 0)
+        {
+            oASSC->TauE = tempD;
+        }
+        else if(strcmp(tempC, "TauLi:") == 0)
+        {
+            oASSC->TauLi = tempD;
         }
     }
     return;
@@ -338,11 +367,248 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
     return;
 }
 
+
+/*
+
+    Other auxiliary functions:
+
+*/
+
+double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
+{
+    /*
+        Function mode1_penalty_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - distance (in pixels) from current collector
+            - distance (in pixels) from solid electrolyte
+        Outputs:
+            - directly outputs the weighting factor.
+    */
+    
+    double w = 0;
+
+    w = 1 - pow((oASSC->TauE*dcc - oASSC->TauLi*dse),2) / 
+                pow((oASSC->TauMax*mesh->numCellsY),2);
+
+    return w;
+}
+
+void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
+{
+    /*
+        Function fixC_ASSC2D:
+        Inputs:
+            - pointer to struct mesh info
+            - pointer to diffusion coefficient array
+            - pointer to concentration array
+        Outputs:
+            - none
+        
+        For some small particles (a single pixel), the fluxes are too large
+        compared to the amount of Li available. This can generate issues in
+        the first iteration. This function here will regularize the Li 
+        concentration after the first iteration to make sure these particles
+        are just below the threshold for depletion while not having a negative
+        concentration.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if (DC[i] == 0)
+            continue;
+        
+        if (Conc[i] < 0)
+        {
+            Conc[i] = 100;
+        }
+    }
+
+    return;
+}
+
 /*
 
     Discretization and Setup
 
 */
+
+void ASSC2D_subDomainFF(meshInfo *mesh, ASSCopts *oASSC, char *simData, char *subDomain)
+{
+    /*
+        ASSC2D_subDomainFF:
+        Inputs:
+            - pointer to meshInfo
+            - pointer to ASSC options
+            - pointer to simData
+        Outputs:
+            - none
+        
+        Function will use a flood-fill approach to characterize the number of
+        independent active material (AM) subdomains. The information is stored
+        in the subDomain array.
+    */
+
+    // make sure all entries in subDomain are -1
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        subDomain[i] = -1;
+    }
+
+    // at the first point we find AM, set the counter to 1 and start the FF
+
+    bool scan = true;
+    
+    int lastIdxChecked = 0;
+    int nDomains = 0;
+
+    int row, col;
+
+    std::set<coordPair> cList;
+
+    while (scan)
+    {
+        // find any solids that haven't been assigned yet
+        for(int i = lastIdxChecked; i < mesh->nElements; i++)
+        {
+            if (simData[i] == oASSC->POI && subDomain[i] == -1)
+            {
+                lastIdxChecked = i;
+
+                // open lists and assign starting point
+
+                row = lastIdxChecked / mesh->numCellsX;
+                col = lastIdxChecked - mesh->numCellsX * row;
+
+                cList.insert(std::pair(col, row));
+
+                // increase subdomain number
+                nDomains++;
+                subDomain[i] = nDomains;
+
+                break;
+            }
+        }
+
+        if (cList.empty())
+        {
+            scan = false;
+        }
+
+        
+
+        while (!cList.empty())
+        {
+            // pop first item on the list
+            coordPair pop = *cList.begin();
+
+            // remove the item we just popped
+            cList.erase(cList.begin());
+
+            // read coordinates
+            col = pop.first;
+            row = pop.second;
+
+            /*
+                We need to check North, South, East, and West for more fluid:
+
+                North = col + 0, row - 1
+                South = col + 0, row + 1
+                East  = col + 1, row + 0
+                West  = col - 1, row + 0
+
+                Note that diagonals are not considered a connection.
+                If the user asks for periodic BCs, they are accounted for.
+            */
+
+            int tempRow, tempCol;
+            long int tempIdx;
+
+            // North
+
+            tempCol = col;
+
+            if (row > 0)
+            {
+                tempRow = row - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // South
+
+            if (row < mesh->numCellsY - 1)
+            {
+                tempRow = row + 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // East
+
+            tempRow = row;
+
+            if (col < mesh->numCellsX - 1)
+            {
+                tempCol = col + 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+            else if(col == mesh->numCellsX - 1 && oASSC->PB)
+            {
+                tempCol = 0;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+
+            // West
+
+            if (col > 0)
+            {
+                tempCol = col - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+            else if(col == 0 && oASSC->PB)
+            {
+                tempCol = mesh->numCellsX - 1;
+                tempIdx = tempRow * mesh->numCellsX + tempCol;
+                if (subDomain[tempIdx] == -1 && simData[tempIdx] == oASSC->POI)
+                {
+                    subDomain[tempIdx] = nDomains;
+                    cList.insert(std::pair(tempCol, tempRow));
+                }
+            }
+        } //end while
+    }
+
+    oASSC->nSubDomains = nDomains;
+
+    return;
+}
+
 
 void activeSA_2D_ASSC(meshInfo *mesh, ASSCopts *oASSC, char *simData)
 {
@@ -586,6 +852,50 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
     return;
 }
 
+void subAvgC_ASSC2D(meshInfo    *mesh,
+                    ASSCopts    *oASSC,
+                    double      *C0,
+                    char        *subDomain,
+                    int         *subSize,
+                    double      *subC)
+{
+    /*
+        Function subAvgC_ASSC2D:
+        Inputs:
+            - pointer to the mesh struct
+            - pointer to the oASSC struct
+            - pointer to concentration array
+            - pointer to subDomain classification array
+            - pointer to sub-domain size array
+            - pointer to sub-domain average concentration array
+        Outputs:
+            - none
+
+        Function will calculate the size of each subdomain and calculate
+        the average concentration in each subdomain.
+    */
+
+    for(int index = 0; index < mesh->nElements; index++)
+    {
+        if (subDomain[index] == -1)
+            continue;
+
+        // Now we know this is some subdomain
+
+        int subIdx = subDomain[index] - 1;
+
+        subSize[subIdx]++;
+        subC[subIdx] += C0[index];
+    }
+
+    // Average and print
+    for(int index = 0; index < oASSC->nSubDomains; index++)
+    {
+        subC[index] = (double)subC[index] / subSize[index];
+    }
+
+    return;
+}
 
 void disc2D_ASSC(options     *opts,
                 meshInfo    *mesh,
@@ -593,7 +903,10 @@ void disc2D_ASSC(options     *opts,
                 double      *DC,
                 double      *Coeff,
                 double      *RHS,
-                double      *C0)
+                double      *C0,
+                char        *simData,
+                char        *subDomain,
+                double      *subAvgC)
 {
     /*
         Function disc2D_ASSC:
@@ -605,6 +918,9 @@ void disc2D_ASSC(options     *opts,
             - pointer to Coefficient Matrix
             - pointer to RHS
             - pointer to concentration dist. at last time-step
+            - pointer to simData (phase-spec) array
+            - pointer to subDomain array
+            - pointer to subAvgC
         Outputs:
             - None.
         
@@ -629,6 +945,8 @@ void disc2D_ASSC(options     *opts,
 
     int tempE, tempW;
 
+    int sdIdx;
+
     // main loop
 
     for(int index = 0; index < mesh->nElements; index++)
@@ -641,7 +959,7 @@ void disc2D_ASSC(options     *opts,
             continue;
         }
 
-        // make sure COeff and RHS are 0
+        // make sure Coeff and RHS are 0
         RHS[index] = 0;
         for (int k = 0; k < 5; k++)
         {
@@ -687,9 +1005,17 @@ void disc2D_ASSC(options     *opts,
 
         // West
 
-        if(DC[row * nCols + tempW] == 0)
+        if(simData[row * nCols + tempW] == 1)
         {
-            RHS[index] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[index] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[index] += -2 * oASSC->faceFlux *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
         else
         {
@@ -701,9 +1027,17 @@ void disc2D_ASSC(options     *opts,
 
         // East
 
-        if(DC[row * nCols + tempE] == 0)
+        if(simData[row * nCols + tempE] == 1)
         {
-            RHS[index] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[index] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[index] += -2*oASSC->faceFlux *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
         else
         {
@@ -717,9 +1051,17 @@ void disc2D_ASSC(options     *opts,
 
         if (row != mesh->numCellsY - 1)
         {
-            if(DC[(row + 1) * nCols + col] == 0)
+            if(simData[(row + 1) * nCols + col] == 1)
             {
-                RHS[index] += -oASSC->faceFlux;
+                if (oASSC->mode == 0)
+                {
+                    RHS[index] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[index] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else
             {
@@ -734,9 +1076,17 @@ void disc2D_ASSC(options     *opts,
 
         if(row != 0)
         {
-            if(DC[(row - 1) * nCols + col] == 0)
+            if(simData[(row - 1) * nCols + col] == 1)
             {
-                RHS[index] += -oASSC->faceFlux;
+                if (oASSC->mode == 0)
+                {
+                    RHS[index] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[index] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else
             {
@@ -764,7 +1114,10 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 double      *DC,
                 double      *CoeffMatrix,
                 double      *RHS,
-                double      *C0)
+                double      *C0,
+                char        *simData,
+                char        *subDomain,
+                double      *subAvgC)
 {
 
     /*
@@ -776,6 +1129,9 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             - pointer to CoeffMatrix array
             - pointer to RHS array
             - pointer to concentration values array from previous time step
+            - pointer to simData array.
+            - pointer to subDomain labels
+            - pointer to subDomain average concentration
         Outputs:
             - None.
         
@@ -839,6 +1195,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             ap += -CoeffMatrix[i * 5 + j];
         }
 
+        // get subdomain idx
+
+        int subIdx = subDomain[i] - 1;
+        double avgC = subAvgC[subIdx];
+
         // Check all directions for BCs
 
         // Get periodic BC's
@@ -868,10 +1229,18 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from the last time-step
             RHS[i] += -CoeffMatrix[i * 5  + 1] * C0[row * nCols + tempW];
         }
-        else
+        else if(simData[row * nCols + tempW] == 1 && avgC > 300)
         {
             // contribution from BC flux
-            RHS[i] += -oASSC->faceFlux;
+            if (oASSC->mode == 0)
+            {
+                RHS[i] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[i] += -2*oASSC->faceFlux *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // East
@@ -881,22 +1250,38 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             // contribution from last time-step
             RHS[i] += -CoeffMatrix[i * 5 + 2] * C0[row * nCols + tempE];
         }
-        else
+        else if(simData[row * nCols + tempE] == 1 && avgC > 300)
         {
-            // contribution from BC Flux
-            RHS[i] += -oASSC->faceFlux;
+            // contribution from BC flux
+            if (oASSC->mode == 0)
+            {
+                RHS[i] += -oASSC->faceFlux;
+            }
+            else if(oASSC->mode == 1)
+            {
+                RHS[i] += -2*oASSC->faceFlux *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // South
 
         if(row != mesh->numCellsY - 1)
         {
-            if(DC[(row + 1) * nCols + col] == 0)
+            if(simData[(row + 1) * nCols + col] == 1 && avgC > 300)
             {
-                // BC flux
-                RHS[i] += -oASSC->faceFlux;
+                // contribution from BC flux
+                if (oASSC->mode == 0)
+                {
+                    RHS[i] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[i] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
-            else
+            else if(DC[(row + 1) * nCols + col] != 0)
             {
                 // prev. step contribution
                 RHS[i] -= CoeffMatrix[i * 5 + 3] * C0[(row + 1) * nCols + col];
@@ -907,12 +1292,20 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
         if (row != 0)
         {
-            if(DC[(row - 1) * nCols + col] == 0)
+            if(simData[(row - 1) * nCols + col] == 1 && avgC > 300)
             {
-                // BC flux
-                RHS[i] += -oASSC->faceFlux;
+                // contribution from BC flux
+                if (oASSC->mode == 0)
+                {
+                    RHS[i] += -oASSC->faceFlux;
+                }
+                else if(oASSC->mode == 1)
+                {
+                    RHS[i] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
-            else
+            else if(DC[(row - 1) * nCols + col] != 0)
             {
                 // prev. step contribution
                 RHS[i] -= CoeffMatrix[i * 5 + 4] * C0[(row - 1) * nCols + col];
@@ -926,6 +1319,8 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
     return 0;
 }
+
+
 
 // Test function below
 
