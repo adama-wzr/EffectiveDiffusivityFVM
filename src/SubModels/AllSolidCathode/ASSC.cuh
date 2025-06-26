@@ -67,6 +67,11 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     if(oASSC->mode == 0)
     {
         printf("(constant)\n");
+    }else if(oASSC->mode == 1)
+    {
+        printf("(Tortuosity Weighed)\n");
+        printf("TauLi = %1.3e, TauE = %1.3e", oASSC->TauLi, oASSC->TauE);
+        oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
     }
 
     // mesh amplificaiton
@@ -153,6 +158,9 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->C0 = 1e4;    // mol/m^3
     oASSC->mode = 0;    // constant reaction rate
 
+    oASSC->TauE = 1;
+    oASSC->TauLi = 1;
+
     /*
     --------------------------------------------------------------------------------
 
@@ -224,6 +232,14 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if(strcmp(tempC, "Mode:") == 0)
         {
             oASSC->mode = (int)tempD;
+        }
+        else if(strcmp(tempC, "TauE:") == 0)
+        {
+            oASSC->TauE = tempD;
+        }
+        else if(strcmp(tempC, "TauLi:") == 0)
+        {
+            oASSC->TauLi = tempD;
         }
     }
     return;
