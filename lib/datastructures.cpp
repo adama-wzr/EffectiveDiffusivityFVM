@@ -50,6 +50,7 @@ typedef struct
     double pixelRes;       // pixel resolution
     int PB;                // Periodic BC (0 = false, 1 = true)
     int C_or_D;            // charge (0) or discharge (1)
+    int mode;              // controls the type of weighing factor for reaction rate
     // not inputs
     double AM_VF;           // volume fraction of active material
     double faceFlux;        // fixed face flux (is the applied current divided by nFaces)

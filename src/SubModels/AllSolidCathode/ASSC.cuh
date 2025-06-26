@@ -63,6 +63,12 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     printf("            Simulation Options:             \n\n");
     printf("--------------------------------------------\n\n");
 
+    printf("Reaction Control Mode: %d ", oASSC->mode);
+    if(oASSC->mode == 0)
+    {
+        printf("(constant)\n");
+    }
+
     // mesh amplificaiton
 
     printf("Mesh Refine X = %d\n", opts->MeshIncreaseX);
@@ -145,6 +151,7 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->D0 = 1;
     oASSC->CMax = 1e15;
     oASSC->C0 = 1e4;    // mol/m^3
+    oASSC->mode = 0;    // constant reaction rate
 
     /*
     --------------------------------------------------------------------------------
@@ -213,6 +220,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if(strcmp(tempC, "PB:") == 0)
         {
             oASSC->PB = (int)tempD;
+        }
+        else if(strcmp(tempC, "Mode:") == 0)
+        {
+            oASSC->mode = (int)tempD;
         }
     }
     return;
