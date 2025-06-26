@@ -1193,6 +1193,32 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
     return 0;
 }
 
+/*
+
+    Other auxiliary functions:
+
+*/
+
+double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
+{
+    /*
+        Function mode1_penalty_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - distance (in pixels) from current collector
+            - distance (in pixels) from solid electrolyte
+        Outputs:
+            - directly outputs the weighting factor.
+    */
+    
+    double w = 0;
+
+    w = 1 - pow((oASSC->TauE*dcc - oASSC->TauLi*dse),2) / 
+                pow((oASSC->TauMax*mesh->numCellsY),2);
+
+    return w;
+}
 
 void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
 {
