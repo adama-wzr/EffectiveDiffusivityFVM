@@ -194,6 +194,8 @@ int main(int argc, char **argv)
         // not using GITT data
         if (mesh.currentTime != 0)
         {
+            // regularize negative concentrations
+            fixC_ASSC2D(&mesh, DC, C0);
             // coefficient matrix is still good, just update the RHS
             RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
         }
@@ -237,6 +239,7 @@ int main(int argc, char **argv)
 
             // regularize negative concentrations
             fixC_ASSC2D(&mesh, DC, Conc);
+
             // save avg C(y,t)
             saveCyt_ASSC(&mesh, Conc, step);
             
