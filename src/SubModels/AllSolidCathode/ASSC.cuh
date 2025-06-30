@@ -1377,16 +1377,4 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
     return 0;
 }
 
-
-
-// Test function below
-
-void test_funct(void)
-{
-    printf("hello world\n");
-
-    return;
-}
-
-
 #endif

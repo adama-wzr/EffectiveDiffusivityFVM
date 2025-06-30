@@ -260,7 +260,5 @@ int main(int argc, char **argv)
 
     printCandF_ASSC(&opts, &oASSC, &mesh, DC, Conc);
 
-    test_funct();
-
     return 0;
 }
