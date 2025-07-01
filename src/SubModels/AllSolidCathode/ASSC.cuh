@@ -75,6 +75,26 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
         printf("TauLi = %1.3e, TauE = %1.3e\n", oASSC->TauLi, oASSC->TauE);
         oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
     }
+    else if(oASSC->mode == 2)
+    {
+        printf("(Tortuosity + Saturation Weighed)\n");
+        printf("TauLi = %1.3e, TauE = %1.3e\n", oASSC->TauLi, oASSC->TauE);
+        oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
+    }
+    else if(oASSC->mode == 3)
+    {
+        printf("(Tort + Sat + Anom. Diff)\n");
+        printf("TauLi = %1.3e, TauE = %1.3e\n", oASSC->TauLi, oASSC->TauE);
+        oASSC->TauMax = (oASSC->TauE > oASSC->TauLi) ? oASSC->TauE : oASSC->TauLi;
+        printf("Cmax = %1.3e [mol/m^3], D0 = %1.3e\n", oASSC->CMax, oASSC->D0);
+    }
+    else
+    {
+        printf("Currently, only 0 - 3 modes are available.\n");
+        printf("User entered %d\n", oASSC->mode);
+        printf("Proceeding with mode = 0.\n");
+        oASSC->mode = 0;
+    }
 
     // mesh amplificaiton
 
@@ -156,7 +176,7 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->printMAP = 0;
     oASSC->startTime = 0;
     oASSC->D0 = 1;
-    oASSC->CMax = 1e15;
+    oASSC->CMax = 1e5;
     oASSC->C0 = 1e4;    // mol/m^3
     oASSC->mode = 0;    // constant reaction rate
 
@@ -304,7 +324,9 @@ void saveCyt_ASSC(meshInfo *mesh, double *Concentration, int step)
             avgC += Concentration[row * mesh->numCellsX + col];
         }
         if (count != 0)
+        {
             avgC = (double)avgC / count;
+        }
         else
             avgC = 0;
         fprintf(OUT, "%d,%1.3e\n", row, avgC);
@@ -758,6 +780,51 @@ void ASSC_DC(meshInfo *mesh, ASSCopts *oASSC, char *simData, double *DC)
     return;
 }
 
+int oASSC2D_AnomDiff(ASSCopts *oASSC, meshInfo *mesh, double *DC, double *C, char *simData)
+{
+    /*
+        Function setDC_AnomDiff:
+        Inputs:
+            - pointer to ASSC opts
+            - pointer to mesh info
+            - pointer to DC array
+            - pointer to Concentration array
+            - pointer to simData array (phase info)
+        Outputs:
+            - None
+        
+        Function will use user entered information along with the concentration array
+        to provide the diffusion coefficient of the POI according to the theory of
+        anomalous diffusion:
+
+        D = D'(Cmax + C)/(Cmax - C)
+
+        where D' and Cmax are entered by the user, C is using the calculated concentration.
+
+        The function returns false if Cmax - C ~ 0
+    */
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        // get local phase
+        int localPhase = simData[i];
+        
+        // check if not active material, increment
+        if(localPhase != oASSC->POI)
+            continue;
+        // check for NaN potential
+        if (oASSC->CMax <= C[i])
+        {
+            printf("Error, anom diff encountered wrong concentration. Exiting...\n");
+            return 1;
+        }
+
+        DC[i] = oASSC->D0*(C[i] + oASSC->CMax)/(oASSC->CMax - C[i]);
+    }
+    
+    return 0;
+}
+
 void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, int *BC, double *BC_value)
 {
     /*
@@ -1016,6 +1083,11 @@ void disc2D_ASSC(options     *opts,
                 RHS[index] += -2 * oASSC->faceFlux *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
             }
+            else if(oASSC->mode == 2 || oASSC->mode == 3)
+            {
+                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
         else
         {
@@ -1036,6 +1108,11 @@ void disc2D_ASSC(options     *opts,
             else if(oASSC->mode == 1)
             {
                 RHS[index] += -2*oASSC->faceFlux *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
+            else if(oASSC->mode == 2 || oASSC->mode == 3)
+            {
+                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
             }
         }
@@ -1062,6 +1139,11 @@ void disc2D_ASSC(options     *opts,
                     RHS[index] += -2*oASSC->faceFlux *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }
+                else if(oASSC->mode == 2 || oASSC->mode == 3)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else
             {
@@ -1085,6 +1167,11 @@ void disc2D_ASSC(options     *opts,
                 else if(oASSC->mode == 1)
                 {
                     RHS[index] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
+                else if(oASSC->mode == 2 || oASSC->mode == 3)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }
             }
@@ -1241,6 +1328,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 RHS[i] += -2*oASSC->faceFlux *
                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
             }
+            else if(oASSC->mode == 2)
+            {
+                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // East
@@ -1262,6 +1354,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 RHS[i] += -2*oASSC->faceFlux *
                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
             }
+            else if(oASSC->mode == 2)
+            {
+                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+            }
         }
 
         // South
@@ -1278,6 +1375,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 else if(oASSC->mode == 1)
                 {
                     RHS[i] += -2*oASSC->faceFlux *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
+                else if(oASSC->mode == 2)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }
             }
@@ -1304,6 +1406,11 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                     RHS[i] += -2*oASSC->faceFlux *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }
+                else if(oASSC->mode == 2)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
             else if(DC[(row - 1) * nCols + col] != 0)
             {
@@ -1319,17 +1426,5 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
 
     return 0;
 }
-
-
-
-// Test function below
-
-void test_funct(void)
-{
-    printf("hello world\n");
-
-    return;
-}
-
 
 #endif
