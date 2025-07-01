@@ -131,6 +131,11 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
     printf("Time Step: %1.3e [s]\n", mesh->dt);
 
+    if(oASSC->filterP)
+    {
+        printf("Sub-Domains smaller than %d voxels will be filtered out.\n", oASSC->filterSizeTH);
+    }
+
 
     // BC
     if(oASSC->PB)
@@ -182,6 +187,9 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
 
     oASSC->TauE = 1;
     oASSC->TauLi = 1;
+
+    oASSC->filterP = 0;
+    oASSC->filterSizeTH = 0;
 
     /*
     --------------------------------------------------------------------------------
@@ -262,6 +270,14 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if(strcmp(tempC, "TauLi:") == 0)
         {
             oASSC->TauLi = tempD;
+        }
+        else if(strcmp(tempC, "FilterSD:") == 0)
+        {
+            oASSC->filterP = (int) tempD;
+        }
+        else if(strcmp(tempC, "FilterSD_TH:") == 0)
+        {
+            oASSC->filterSizeTH = (int) tempD;
         }
     }
     return;
@@ -455,6 +471,26 @@ void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
     Discretization and Setup
 
 */
+
+void get_SDSize_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *SD_size, char *subDomain)
+{
+    /*
+        Function get_SDSize_ASSC2D:
+        Inputs:
+            - pointer to meshInfo
+            - pointer to oASSC
+            - pointer to SD (sub-domain size)
+            - array with subDomain Labels
+        Outputs:
+            - none.
+        
+        Function will count the size of each subdomain in number of voxels and store it
+        at the SD_size array (at the) appropriate index.
+    */
+
+    return;
+}
+
 
 void ASSC2D_subDomainFF(meshInfo *mesh, ASSCopts *oASSC, char *simData, char *subDomain)
 {

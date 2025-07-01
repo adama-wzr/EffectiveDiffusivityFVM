@@ -53,6 +53,8 @@ typedef struct
     int mode;              // controls the type of weighing factor for reaction rate
     double TauE;           // Tortuosity for electorde (needed for mode 1)
     double TauLi;          // SE tortuosity (needed for mode 1)
+    int filterP;           // filter small particles or no? (0 = false, 1 = true)
+    int filterSizeTH;      // filter subDomains smaller than this
     // not inputs
     double AM_VF;           // volume fraction of active material
     double faceFlux;        // fixed face flux (is the applied current divided by nFaces)

@@ -52,6 +52,20 @@ int main(int argc, char **argv)
 
     mesh.dt = growth_factor * pow(mesh.dx, 2) / oASSC.POI_DC;
 
+    // subdomains
+
+    char *subDomain = (char *)malloc(sizeof(char) * mesh.nElements);
+
+    memset(subDomain, 0, sizeof(char) * mesh.nElements);
+
+    ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
+
+    // create arrays based on the number of subdomains
+
+    int *subSize = (int *) malloc(sizeof(int) * oASSC.nSubDomains);
+
+    get_SDSize_ASSC2D(&mesh, &oASSC, subSize, subDomain);
+
     // calculate AM VF and active surface area
 
     ASSC_AM_VF(&mesh, &oASSC, simData);
@@ -121,24 +135,14 @@ int main(int argc, char **argv)
         }
     }
 
-    // subdomains
-
-    char *subDomain = (char *)malloc(sizeof(char) * mesh.nElements);
-
-    memset(subDomain, 0, sizeof(char) * mesh.nElements);
-
-    ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
-
-    // create arrays based on the number of subdomains
-
-    int *subSize = (int *) malloc(sizeof(int) * oASSC.nSubDomains);
+    // zero sub domains size
     double *subDomainAvgC = (double *)malloc(sizeof(double) * oASSC.nSubDomains);
 
     memset(subSize, 0, sizeof(int) * oASSC.nSubDomains);
     memset(subDomainAvgC, 0, sizeof(double) * oASSC.nSubDomains);
+    
 
     // check size and avg C
-
     subAvgC_ASSC2D(&mesh, &oASSC, C0, subDomain, subSize, subDomainAvgC);
 
     // set BCs
