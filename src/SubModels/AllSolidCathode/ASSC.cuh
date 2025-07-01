@@ -131,11 +131,12 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
     printf("Time Step: %1.3e [s]\n", mesh->dt);
 
+    // Filter or no?
+
     if(oASSC->filterP)
     {
         printf("Sub-Domains smaller than %d voxels will be filtered out.\n", oASSC->filterSizeTH);
     }
-
 
     // BC
     if(oASSC->PB)
@@ -273,11 +274,11 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         }
         else if(strcmp(tempC, "FilterSD:") == 0)
         {
-            oASSC->filterP = (int) tempD;
+            oASSC->filterP = (int)tempD;
         }
         else if(strcmp(tempC, "FilterSD_TH:") == 0)
         {
-            oASSC->filterSizeTH = (int) tempD;
+            oASSC->filterSizeTH = (int)tempD;
         }
     }
     return;
@@ -466,12 +467,6 @@ void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
     return;
 }
 
-/*
-
-    Discretization and Setup
-
-*/
-
 void get_SDSize_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *SD_size, char *subDomain)
 {
     /*
@@ -488,9 +483,57 @@ void get_SDSize_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *SD_size, char *subD
         at the SD_size array (at the) appropriate index.
     */
 
+    for(int index = 0; index < mesh->nElements; index++)
+    {
+        if (subDomain[index] == -1)
+            continue;
+
+        // Now we know this is some subdomain
+
+        int subIdx = subDomain[index] - 1;
+
+        SD_size[subIdx]++;
+    }
+
     return;
 }
 
+void filterSD_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *subSize, char *subDomain, char *simData)
+{
+    /*
+        Function filterSD_ASSC2D:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to options ASSC
+            - pointer to subSize (subdomain size in nVoxels)
+            - pointer to subDomain (labels)
+            - pointer to simData (image reading TH labels)
+        Output:
+            - none.
+        
+        Function will change the value in the simData array from POI to SE if the
+        subDomain size is less than the user-specified threshold. This function
+        is used to filter out small independent particles from the simulation.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(subDomain[i] == -1)
+            continue;
+        
+        int subIdx = subDomain[i] - 1;
+        if(subSize[subIdx] <= oASSC->filterSizeTH)
+            simData[i] = 1;
+    }
+
+    return;
+}
+
+/*
+
+    Discretization and Setup
+
+*/
 
 void ASSC2D_subDomainFF(meshInfo *mesh, ASSCopts *oASSC, char *simData, char *subDomain)
 {

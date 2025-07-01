@@ -60,11 +60,27 @@ int main(int argc, char **argv)
 
     ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+    if(oASSC.filterP == 1)
+    {
+        // create arrays based on the number of subdomains
+        int *subSize = (int *) malloc(sizeof(int) * oASSC.nSubDomains);
+        memset(subSize, 0, sizeof(int) * oASSC.nSubDomains);
+        get_SDSize_ASSC2D(&mesh, &oASSC, subSize, subDomain);
+
+        // remove sub-domains that are smaller than 10 voxels
+        // (have to modify simData and subDomain)
+        filterSD_ASSC2D(&mesh, &oASSC, subSize, subDomain, simData);
+        
+        // Get subdomains again after simData is modified
+        memset(subDomain, 0, sizeof(char) * mesh.nElements);
+        ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
+
+        // free old subSize
+        free(subSize);
+    }
+
     // create arrays based on the number of subdomains
-
     int *subSize = (int *) malloc(sizeof(int) * oASSC.nSubDomains);
-
-    get_SDSize_ASSC2D(&mesh, &oASSC, subSize, subDomain);
 
     // calculate AM VF and active surface area
 
