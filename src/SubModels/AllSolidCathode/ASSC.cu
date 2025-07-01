@@ -111,6 +111,16 @@ int main(int argc, char **argv)
         C0[i] = oASSC.C0;   // mol/m^3
     }
 
+    // if mode == 3, adjust for anomalous diffusion
+
+    if(oASSC.mode == 3)
+    {
+        if(oASSC2D_AnomDiff(&oASSC, &mesh, DC, C0, simData) == 1)
+        {
+            return 1;
+        }
+    }
+
     // subdomains
 
     char *subDomain = (char *)malloc(sizeof(char) * mesh.nElements);
@@ -196,8 +206,19 @@ int main(int argc, char **argv)
         {
             // regularize negative concentrations
             fixC_ASSC2D(&mesh, DC, C0);
-            // coefficient matrix is still good, just update the RHS
-            RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
+            if(oASSC.mode == 3)
+            {
+                // update diffusion coefficients
+                if(oASSC2D_AnomDiff(&oASSC, &mesh, DC, C0, simData) == 1)
+                    return 1;
+                // discretize
+                disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
+            }
+            else
+            {
+                // coefficient matrix is still good, just update the RHS
+                RHS_Up2D_ASSC(&mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
+            }
         }
 
 
