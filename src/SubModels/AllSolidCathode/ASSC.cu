@@ -260,5 +260,24 @@ int main(int argc, char **argv)
 
     printCandF_ASSC(&opts, &oASSC, &mesh, DC, Conc);
 
+    // Memory Management
+    if(opts.useGPU)
+        unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, & d_ConcTemp);
+
+    // simulation arrays
+    free(RHS);
+    free(DC);
+    free(Conc);
+    free(C0);
+    free(Coeff);
+
+    // morphology data
+    free(simData);
+    free(subDomain);
+    free(subDomainAvgC);
+    free(subSize);
+    free(BC);
+    free(BC_Value);
+
     return 0;
 }
