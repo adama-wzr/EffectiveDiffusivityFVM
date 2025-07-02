@@ -354,6 +354,48 @@ void saveCyt_ASSC(meshInfo *mesh, double *Concentration, int step)
     return;
 }
 
+
+void printSubDomains(meshInfo *mesh, char *subDomain, char *filename)
+{
+    /*
+        Function printSubDomains:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to subDomain info
+            - pointer to filename
+        Outputs:
+            - None.
+        
+        Function will print subdomain info to a .csv file with
+        'filename'.
+    */
+
+    // open file
+
+    FILE *SDMAP = fopen(filename, "w+");
+    
+    fprintf(SDMAP, "x,y,SD\n");
+
+    int row, col;
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(subDomain[i] == -1 ) continue;
+
+        // break down i into row and col
+
+        row = i / mesh->numCellsX;
+        col = i - row * mesh->numCellsX;
+
+        fprintf(SDMAP, "%d,%d,%d\n", col, row, subDomain[i]);
+    }
+
+    fclose(SDMAP);
+
+    return;
+}
+
+
 void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC, double *C)
 {
     /*

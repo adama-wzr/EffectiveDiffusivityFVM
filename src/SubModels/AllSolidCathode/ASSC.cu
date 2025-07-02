@@ -60,6 +60,12 @@ int main(int argc, char **argv)
 
     ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+    // char subDomainName[100];
+
+    // sprintf(subDomainName, "before.csv");
+
+    // printSubDomains(&mesh, subDomain, subDomainName);
+
     if(oASSC.filterP == 1)
     {
         // create arrays based on the number of subdomains
@@ -74,6 +80,9 @@ int main(int argc, char **argv)
         // Get subdomains again after simData is modified
         memset(subDomain, 0, sizeof(char) * mesh.nElements);
         ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
+
+        // sprintf(subDomainName, "after.csv");
+        // printSubDomains(&mesh, subDomain, subDomainName);
 
         // free old subSize
         free(subSize);
