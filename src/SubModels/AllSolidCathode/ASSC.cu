@@ -147,8 +147,14 @@ int main(int argc, char **argv)
         if (DC[i] == 0)
             continue;
         Conc[i] = oASSC.C0; // mol/m^3
-        C0[i] = oASSC.C0;   // mol/m^3
     }
+
+    if(oASSC.pristine != 0)
+    {
+        initC_ASSC2D(&oASSC, &mesh, Conc);
+    }
+
+    memcpy(C0, Conc, sizeof(double) * mesh.nElements);
 
     // if mode == 3, adjust for anomalous diffusion
 

@@ -475,6 +475,81 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
 
 */
 
+int initC_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double *C)
+{
+    /*
+        Function initC_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - pointer to array holding concentrations
+        Outputs:
+            - None.
+        
+        Function will read file and adjust the concentration array accordingly.
+        Returns 1 if file cannot be opened.
+    */
+
+    FILE *INIT = fopen(oASSC->initC_Name, "r");
+
+    if (INIT == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[100];
+
+    fscanf(INIT, "%c,%c", &header[0], &header[1]);
+
+    // Read file and store values
+
+    double *Loc = (double *)malloc(sizeof(double) * mesh->numCellsY);
+    double *DeltaC_pct = (double *)malloc(sizeof(double) * mesh->numCellsY);
+    
+    memset(DeltaC_pct, 0, sizeof(double) * mesh->numCellsY);
+
+    // Start reading
+
+    size_t count = 0;
+
+    while(fscanf(INIT, "%lf,%lf", &Loc[count], &DeltaC_pct[count]) == 2)
+    {
+        count++;
+    }
+
+    // close open file
+
+    fclose(INIT);
+
+    // correct concentrations
+
+    double stepSize = mesh->numCellsY / (double) count;
+    int currentIdx = 0;
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        if ( row > stepSize*currentIdx)
+        {
+            currentIdx++;
+        }
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            if(C[row * mesh->numCellsX + col] != 0)
+            {
+                C[row * mesh->numCellsX + col] = C[row * mesh->numCellsX + col] *
+                                                         (1.0 - DeltaC_pct[currentIdx]);
+            }
+        }
+    }
+
+    free(DeltaC_pct);
+    free(Loc);
+
+
+    return 0;
+}
+
 double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
 {
     /*
