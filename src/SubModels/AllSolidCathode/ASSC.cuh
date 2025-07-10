@@ -138,6 +138,14 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
         printf("Sub-Domains smaller than %d voxels will be filtered out.\n", oASSC->filterSizeTH);
     }
 
+    // Pritine Start or No?
+
+    if(oASSC->pristine != 0)
+    {
+        printf("Initial Concentration is not uniform!\n");
+        printf("Reading from file: $s\n", oASSC->initC_Name);
+    }
+
     // BC
     if(oASSC->PB)
         printf("BC = periodic\n");
@@ -191,6 +199,9 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
 
     oASSC->filterP = 0;
     oASSC->filterSizeTH = 0;
+
+    oASSC->pristine = 0;
+    oASSC->initC_Name = (char *)malloc(sizeof(char) * 1000);
 
     /*
     --------------------------------------------------------------------------------
@@ -279,6 +290,15 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if(strcmp(tempC, "FilterSD_TH:") == 0)
         {
             oASSC->filterSizeTH = (int)tempD;
+        }
+        else if(strcmp(tempC, "Pristine:") == 0)
+        {
+            oASSC->pristine = (int)tempD;
+        }
+        else if(strcmp(tempC, "DeltaC_Name:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(oASSC->initC_Name, tempFilenames);
         }
     }
     return;

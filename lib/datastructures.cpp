@@ -55,6 +55,8 @@ typedef struct
     double TauLi;          // SE tortuosity (needed for mode 1)
     int filterP;           // filter small particles or no? (0 = false, 1 = true)
     int filterSizeTH;      // filter subDomains smaller than this
+    int pristine;          // 0 means pristine state (default), 1 means C(y) |t != C0
+    char *initC_Name;      // File name for initial profile
     // not inputs
     double AM_VF;           // volume fraction of active material
     double faceFlux;        // fixed face flux (is the applied current divided by nFaces)
