@@ -261,6 +261,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         {
             oASSC->totalTime = tempD;
         }
+        else if(strcmp(tempC, "SwitchTime:") == 0)
+        {
+            oASSC->switchTime = tempD;
+        }
         else if (strcmp(tempC, "pixelResolution:") == 0)
         {
             oASSC->pixelRes = tempD;

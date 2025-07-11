@@ -25,9 +25,11 @@ ASSC Options:
 POI: 2
 POI_TH: 170
 POI_DC: 3e-14
+C_or_D: 2
 startTime: 0
 stepSize: 302.5
 totalTime: 12705
+SwitchTime: 6000
 pixelResolution: 2.70e-7
 C0: 2.0572e+04
 current_density: 10
