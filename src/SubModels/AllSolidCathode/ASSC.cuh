@@ -51,10 +51,26 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
 
     printf("Current Density: %1.3e A/m^2\n", oASSC->currentDensity);
 
-    if (oASSC->C_or_D)
+    if (oASSC->C_or_D == 0)
+    {
         printf("Simulating Charge Step\n");
-    else
+    }
+    else if(oASSC->C_or_D == 1)
+    {
         printf("Simulating Discharge Step\n");
+    }
+    else if(oASSC->C_or_D == 2)
+    {
+        printf("Simulating Chagre and Discharge\n");
+        printf("Switch Time: %1.3e sec\n", oASSC->switchTime);
+    }
+    else
+    {
+        printf("oASSC->C_or_D = %d not valid option.\n", oASSC->C_or_D);
+        printf("Defaulting to Charge Cycle.\n");
+        oASSC->C_or_D = 0;
+    }
+    
 
     printf("Start: %5.1lf (s), step: %4.1lf (s), final: %5.1lf (s)\n",
         oASSC->startTime, oASSC->stepTime, oASSC->totalTime);
@@ -186,9 +202,11 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->POI = 1;
     oASSC->POI_TH = 150;
     oASSC->POI_DC = 1e-10;  // m^2/s
-    oASSC->C_or_D = 0;
+    oASSC->C_or_D = 0;      // default to charge
     oASSC->printMAP = 0;
-    oASSC->startTime = 0;
+    oASSC->startTime = 0;   // default, sec
+    oASSC->totalTime = 1;   // default, sec
+    oASSC->switchTime = 0;  // default, sec
     oASSC->D0 = 1;
     oASSC->CMax = 1e5;
     oASSC->C0 = 1e4;    // mol/m^3

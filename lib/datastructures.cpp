@@ -44,12 +44,13 @@ typedef struct
     double stepTime;       // time for step (s)
     double totalTime;      // total sim time (s)
     double startTime;      // start time other than 0?
+    double switchTime;     // time where we change from charge to discharge
     double currentDensity; // current density (A/m)
     double POI_DC;         // diffusion coefficient of phase of interest
     double C0;             // initial concentration for POI
     double pixelRes;       // pixel resolution
     int PB;                // Periodic BC (0 = false, 1 = true)
-    int C_or_D;            // charge (0) or discharge (1)
+    int C_or_D;            // charge (0) or discharge (1) or both (2)
     int mode;              // controls the type of weighing factor for reaction rate
     double TauE;           // Tortuosity for electorde (needed for mode 1)
     double TauLi;          // SE tortuosity (needed for mode 1)
