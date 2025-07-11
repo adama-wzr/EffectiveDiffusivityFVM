@@ -131,6 +131,20 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     printf("Convergence: %1.3e\n", opts->ConvergeCriteria);
     printf("Time Step: %1.3e [s]\n", mesh->dt);
 
+    // Filter or no?
+
+    if(oASSC->filterP)
+    {
+        printf("Sub-Domains smaller than %d voxels will be filtered out.\n", oASSC->filterSizeTH);
+    }
+
+    // Pritine Start or No?
+
+    if(oASSC->pristine != 0)
+    {
+        printf("Initial Concentration is not uniform!\n");
+        printf("Reading from file: $s\n", oASSC->initC_Name);
+    }
 
     // BC
     if(oASSC->PB)
@@ -182,6 +196,12 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
 
     oASSC->TauE = 1;
     oASSC->TauLi = 1;
+
+    oASSC->filterP = 0;
+    oASSC->filterSizeTH = 0;
+
+    oASSC->pristine = 0;
+    oASSC->initC_Name = (char *)malloc(sizeof(char) * 1000);
 
     /*
     --------------------------------------------------------------------------------
@@ -263,6 +283,23 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         {
             oASSC->TauLi = tempD;
         }
+        else if(strcmp(tempC, "FilterSD:") == 0)
+        {
+            oASSC->filterP = (int)tempD;
+        }
+        else if(strcmp(tempC, "FilterSD_TH:") == 0)
+        {
+            oASSC->filterSizeTH = (int)tempD;
+        }
+        else if(strcmp(tempC, "Pristine:") == 0)
+        {
+            oASSC->pristine = (int)tempD;
+        }
+        else if(strcmp(tempC, "DeltaC_Name:") == 0)
+        {
+            sscanf(myText.c_str(), "%s %s", tempC, tempFilenames);
+            strcpy(oASSC->initC_Name, tempFilenames);
+        }
     }
     return;
 }
@@ -337,6 +374,48 @@ void saveCyt_ASSC(meshInfo *mesh, double *Concentration, int step)
     return;
 }
 
+
+void printSubDomains(meshInfo *mesh, char *subDomain, char *filename)
+{
+    /*
+        Function printSubDomains:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to subDomain info
+            - pointer to filename
+        Outputs:
+            - None.
+        
+        Function will print subdomain info to a .csv file with
+        'filename'.
+    */
+
+    // open file
+
+    FILE *SDMAP = fopen(filename, "w+");
+    
+    fprintf(SDMAP, "x,y,SD\n");
+
+    int row, col;
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(subDomain[i] == -1 ) continue;
+
+        // break down i into row and col
+
+        row = i / mesh->numCellsX;
+        col = i - row * mesh->numCellsX;
+
+        fprintf(SDMAP, "%d,%d,%d\n", col, row, subDomain[i]);
+    }
+
+    fclose(SDMAP);
+
+    return;
+}
+
+
 void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC, double *C)
 {
     /*
@@ -396,6 +475,81 @@ void printCandF_ASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh, double *DC,
 
 */
 
+int initC_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double *C)
+{
+    /*
+        Function initC_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - pointer to array holding concentrations
+        Outputs:
+            - None.
+        
+        Function will read file and adjust the concentration array accordingly.
+        Returns 1 if file cannot be opened.
+    */
+
+    FILE *INIT = fopen(oASSC->initC_Name, "r");
+
+    if (INIT == NULL)
+    {
+        fprintf(stderr, "Error reading file. Exiting program.\n");
+        return 1;
+    }
+
+    char header[100];
+
+    fscanf(INIT, "%c,%c", &header[0], &header[1]);
+
+    // Read file and store values
+
+    double *Loc = (double *)malloc(sizeof(double) * mesh->numCellsY);
+    double *DeltaC_pct = (double *)malloc(sizeof(double) * mesh->numCellsY);
+    
+    memset(DeltaC_pct, 0, sizeof(double) * mesh->numCellsY);
+
+    // Start reading
+
+    size_t count = 0;
+
+    while(fscanf(INIT, "%lf,%lf", &Loc[count], &DeltaC_pct[count]) == 2)
+    {
+        count++;
+    }
+
+    // close open file
+
+    fclose(INIT);
+
+    // correct concentrations
+
+    double stepSize = mesh->numCellsY / (double) count;
+    int currentIdx = 0;
+
+    for(int row = 0; row < mesh->numCellsY; row++)
+    {
+        if ( row > stepSize*currentIdx)
+        {
+            currentIdx++;
+        }
+        for(int col = 0; col < mesh->numCellsX; col++)
+        {
+            if(C[row * mesh->numCellsX + col] != 0)
+            {
+                C[row * mesh->numCellsX + col] = C[row * mesh->numCellsX + col] *
+                                                         (1.0 - DeltaC_pct[currentIdx]);
+            }
+        }
+    }
+
+    free(DeltaC_pct);
+    free(Loc);
+
+
+    return 0;
+}
+
 double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double dse)
 {
     /*
@@ -445,6 +599,68 @@ void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
         {
             Conc[i] = 100;
         }
+    }
+
+    return;
+}
+
+void get_SDSize_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *SD_size, char *subDomain)
+{
+    /*
+        Function get_SDSize_ASSC2D:
+        Inputs:
+            - pointer to meshInfo
+            - pointer to oASSC
+            - pointer to SD (sub-domain size)
+            - array with subDomain Labels
+        Outputs:
+            - none.
+        
+        Function will count the size of each subdomain in number of voxels and store it
+        at the SD_size array (at the) appropriate index.
+    */
+
+    for(int index = 0; index < mesh->nElements; index++)
+    {
+        if (subDomain[index] == -1)
+            continue;
+
+        // Now we know this is some subdomain
+
+        int subIdx = subDomain[index] - 1;
+
+        SD_size[subIdx]++;
+    }
+
+    return;
+}
+
+void filterSD_ASSC2D(meshInfo *mesh, ASSCopts *oASSC, int *subSize, char *subDomain, char *simData)
+{
+    /*
+        Function filterSD_ASSC2D:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to options ASSC
+            - pointer to subSize (subdomain size in nVoxels)
+            - pointer to subDomain (labels)
+            - pointer to simData (image reading TH labels)
+        Output:
+            - none.
+        
+        Function will change the value in the simData array from POI to SE if the
+        subDomain size is less than the user-specified threshold. This function
+        is used to filter out small independent particles from the simulation.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(subDomain[i] == -1)
+            continue;
+        
+        int subIdx = subDomain[i] - 1;
+        if(subSize[subIdx] <= oASSC->filterSizeTH)
+            simData[i] = 1;
     }
 
     return;
