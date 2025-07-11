@@ -159,7 +159,7 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     if(oASSC->pristine != 0)
     {
         printf("Initial Concentration is not uniform!\n");
-        printf("Reading from file: $s\n", oASSC->initC_Name);
+        printf("Reading from file: %s\n", oASSC->initC_Name);
     }
 
     // BC
@@ -1117,8 +1117,16 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     flux = mesh->SA/(mesh->dx * mesh->dy);
 
-    oASSC->faceFlux = appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
-
+    if (oASSC->C_or_D == 0 || oASSC->C_or_D == 2)
+    {
+        oASSC->faceFlux = appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
+        mesh->Charging = 1;
+    }else
+    {
+        oASSC->faceFlux = -appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
+        mesh->Charging = 0;
+    }
+    
     // search for boundaries
 
     int right, left, top, bottom;
@@ -1323,8 +1331,16 @@ void disc2D_ASSC(options     *opts,
             }
             else if(oASSC->mode == 2 || oASSC->mode == 3)
             {
-                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                if(mesh->Charging)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
+                
             }
         }
         else
@@ -1350,8 +1366,15 @@ void disc2D_ASSC(options     *opts,
             }
             else if(oASSC->mode == 2 || oASSC->mode == 3)
             {
-                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                if(mesh->Charging)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
+                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
         }
         else
@@ -1379,8 +1402,15 @@ void disc2D_ASSC(options     *opts,
                 }
                 else if(oASSC->mode == 2 || oASSC->mode == 3)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else
@@ -1409,8 +1439,15 @@ void disc2D_ASSC(options     *opts,
                 }
                 else if(oASSC->mode == 2 || oASSC->mode == 3)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else
@@ -1568,8 +1605,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             }
             else if(oASSC->mode == 2)
             {
-                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                if(mesh->Charging)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
         }
 
@@ -1594,8 +1638,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             }
             else if(oASSC->mode == 2)
             {
-                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                if(mesh->Charging)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
         }
 
@@ -1617,8 +1668,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 }
                 else if(oASSC->mode == 2)
                 {
-                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else if(DC[(row + 1) * nCols + col] != 0)
@@ -1646,8 +1704,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 }
                 else if(oASSC->mode == 2)
                 {
-                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] /oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else if(DC[(row - 1) * nCols + col] != 0)

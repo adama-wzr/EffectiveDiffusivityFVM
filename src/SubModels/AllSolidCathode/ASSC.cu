@@ -171,7 +171,6 @@ int main(int argc, char **argv)
 
     memset(subSize, 0, sizeof(int) * oASSC.nSubDomains);
     memset(subDomainAvgC, 0, sizeof(double) * oASSC.nSubDomains);
-    
 
     // check size and avg C
     subAvgC_ASSC2D(&mesh, &oASSC, C0, subDomain, subSize, subDomainAvgC);
@@ -229,12 +228,29 @@ int main(int argc, char **argv)
     saveCyt_ASSC(&mesh, Conc, step);
 
     double SOC = 0;
+    bool SwitchFlag = 0;
 
     while (mesh.currentTime <= oASSC.totalTime)
     {
         // Update SOC
         SOC = mesh.currentTime / oASSC.totalTime * 100;
 
+        if(oASSC.C_or_D == 2 && mesh.currentTime >= oASSC.switchTime && SwitchFlag == 0)
+        {
+            // Change from Charge to Discharge
+            oASSC.faceFlux = -oASSC.faceFlux;
+            // discretize
+            disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
+            // Update Flags
+            SwitchFlag = 1;
+            mesh.Charging = 0;
+            //printf
+            if(opts.verbose)
+            {
+                printf("Switched from Charge to Discharge\n");
+                printf("Time = %1.3e\n", mesh.currentTime);
+            }
+        }
 
         // not using GITT data
         if (mesh.currentTime != 0)
