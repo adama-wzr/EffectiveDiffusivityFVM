@@ -296,6 +296,9 @@ int main(int argc, char **argv)
                                          d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
             }
         }
+        // regularize concentrations
+
+        reg_Conc_ASSC2D(&oASSC, &mesh, Conc);
 
         // Update time
         mesh.currentTime += mesh.dt;

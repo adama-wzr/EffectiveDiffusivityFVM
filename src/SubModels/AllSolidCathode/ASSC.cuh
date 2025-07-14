@@ -593,6 +593,103 @@ double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double 
     return w;
 }
 
+double mode1_penalty_discharge_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc)
+{
+    /*
+        Function mode1_penalty_discharge_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - distance (in pixels) from current collector
+        Outputs:
+            - directly outputs the weighting factor.
+    */
+    
+    double w = 0;
+
+    w = 1 - oASSC->TauE*dcc / (oASSC->TauE*mesh->numCellsY);
+
+    return w;
+}
+
+double satPenalty_Charge_ASSC2D(ASSCopts *oASSC, double *C, int index)
+{
+    /*
+        Function satPenalty_Charge_ASSC2D:
+        Inputs:
+            - pointer to ASSCopts struct
+            - pointer to concentration array
+            - index
+        Outputs:
+            - penalty factor
+        
+        Function will calculate the penalty factor due to saturation
+        during charging. Outputs the weight directly.
+    */
+
+    double w = 0;
+
+    w = sqrt(C[index] / oASSC->C0);
+
+    return w;
+}
+
+double satPenalty_Discharge_ASSC2D(ASSCopts *oASSC, double *C, int index)
+{
+    /*
+        Function satPenalty_Discharge_ASSC2D:
+        Inputs:
+            - pointer to ASSCopts struct
+            - pointer to concentration array
+            - index
+        Outputs:
+            - penalty factor
+        
+        Function will calculate the penalty factor due to saturation
+        during discharge. Outputs the weight directly.
+    */
+
+    double w = 0;
+
+    double sat_temp = (oASSC->C0 - C[index])/oASSC->C0;
+
+    if(sat_temp <= 0)
+        return 0.0;
+
+    // w = sqrt(2 * sat_temp);
+
+    // w = 2*sqrt(C[index]/oASSC->C0) * sqrt(sat_temp);
+    w = sqrt(C[index]/oASSC->C0);
+
+    return w;
+}
+
+void reg_Conc_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double *Conc)
+{
+    /*
+        Function reg_Conc:
+        Inputs:
+            - pointer to oASSC struct
+            - pointer to mesh info
+            - pointer to concentration array
+        Outputs:
+            - none.
+        
+        Function will regularize concentration. If Conc[i] > oASSC->C0,
+        we assign Conc[i] = oASSC->C0.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(Conc[i] > oASSC->C0)
+        {
+            Conc[i] = oASSC->C0;
+        }
+    }
+
+    return;
+}
+
 void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
 {
     /*
@@ -1333,12 +1430,12 @@ void disc2D_ASSC(options     *opts,
             {
                 if(mesh->Charging)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }else
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                        //  mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
                 }
                 
             }
@@ -1368,12 +1465,12 @@ void disc2D_ASSC(options     *opts,
             {
                 if(mesh->Charging)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                 }else
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                        //  mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
                 }
             }
         }
@@ -1404,12 +1501,12 @@ void disc2D_ASSC(options     *opts,
                 {
                     if(mesh->Charging)
                     {
-                        RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                     }else
                     {
-                        RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
-                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                            // mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
                     }
                 }
             }
@@ -1441,12 +1538,12 @@ void disc2D_ASSC(options     *opts,
                 {
                     if(mesh->Charging)
                     {
-                        RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
                     }else
                     {
-                        RHS[index] += -2 * oASSC->faceFlux * (sqrt(C0[index] / oASSC->C0)) *
-                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                            // mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
                     }
                 }
             }
