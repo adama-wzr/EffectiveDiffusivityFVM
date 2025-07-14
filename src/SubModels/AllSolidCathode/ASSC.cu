@@ -60,10 +60,14 @@ int main(int argc, char **argv)
 
     ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+    /*
+    
+        Code to print sub-domains:
+
+    */
+
     // char subDomainName[100];
-
     // sprintf(subDomainName, "before.csv");
-
     // printSubDomains(&mesh, subDomain, subDomainName);
 
     if(oASSC.filterP == 1)
@@ -81,6 +85,11 @@ int main(int argc, char **argv)
         memset(subDomain, 0, sizeof(char) * mesh.nElements);
         ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+        /*
+    
+            Code to print sub-domains:
+
+        */
         // sprintf(subDomainName, "after.csv");
         // printSubDomains(&mesh, subDomain, subDomainName);
 
@@ -171,7 +180,6 @@ int main(int argc, char **argv)
 
     memset(subSize, 0, sizeof(int) * oASSC.nSubDomains);
     memset(subDomainAvgC, 0, sizeof(double) * oASSC.nSubDomains);
-    
 
     // check size and avg C
     subAvgC_ASSC2D(&mesh, &oASSC, C0, subDomain, subSize, subDomainAvgC);
@@ -229,12 +237,29 @@ int main(int argc, char **argv)
     saveCyt_ASSC(&mesh, Conc, step);
 
     double SOC = 0;
+    bool SwitchFlag = 0;
 
     while (mesh.currentTime <= oASSC.totalTime)
     {
         // Update SOC
         SOC = mesh.currentTime / oASSC.totalTime * 100;
 
+        if(oASSC.C_or_D == 2 && mesh.currentTime >= oASSC.switchTime && SwitchFlag == 0)
+        {
+            // Change from Charge to Discharge
+            oASSC.faceFlux = -oASSC.faceFlux;
+            // discretize
+            disc2D_ASSC(&opts, &mesh, &oASSC, DC, Coeff, RHS, C0, simData, subDomain, subDomainAvgC);
+            // Update Flags
+            SwitchFlag = 1;
+            mesh.Charging = 0;
+            //printf
+            if(opts.verbose)
+            {
+                printf("Switched from Charge to Discharge\n");
+                printf("Time = %1.3e\n", mesh.currentTime);
+            }
+        }
 
         // not using GITT data
         if (mesh.currentTime != 0)
@@ -280,6 +305,9 @@ int main(int argc, char **argv)
                                          d_RHS, d_Conc, d_ConcTemp, &opts, &mesh);
             }
         }
+        // regularize concentrations
+
+        reg_Conc_ASSC2D(&oASSC, &mesh, Conc);
 
         // Update time
         mesh.currentTime += mesh.dt;
@@ -314,9 +342,15 @@ int main(int argc, char **argv)
         }
     }
 
+    // print concentration map
     printCandF_ASSC(&opts, &oASSC, &mesh, DC, Conc);
 
-    // Memory Management
+    /*
+    
+        Memory Management:
+
+    */
+   
     if(opts.useGPU)
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, & d_ConcTemp);
 

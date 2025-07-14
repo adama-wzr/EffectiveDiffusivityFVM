@@ -25,12 +25,14 @@ ASSC Options:
 POI: 2
 POI_TH: 170
 POI_DC: 3e-14
+C_or_D: 2
 startTime: 0
 stepSize: 302.5
-totalTime: 12705
+totalTime: 78950
+SwitchTime: 46885
 pixelResolution: 2.70e-7
 C0: 2.0572e+04
-current_density: 10
+current_density: 5
 PB: 1
 Mig: 0
 Mode: 3
@@ -40,5 +42,5 @@ CMax: 2.057225e4
 Dprime: 1e-18
 FilterSD: 1
 FilterSD_TH: 20
-Pristine: 1
+Pristine: 0
 DeltaC_Name: DeltaC.csv

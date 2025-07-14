@@ -30,7 +30,7 @@ Code contributors:
 Andre Adam.
 
 Last Update:
-06/18/2025
+07/11/2025
 
 */
 
@@ -138,6 +138,7 @@ typedef struct
     double dz;
     double dt;
     double currentTime;
+    int Charging;
     long int iterCount;
     double conv;
     long int numFaces;

@@ -51,10 +51,26 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
 
     printf("Current Density: %1.3e A/m^2\n", oASSC->currentDensity);
 
-    if (oASSC->C_or_D)
+    if (oASSC->C_or_D == 0)
+    {
         printf("Simulating Charge Step\n");
-    else
+    }
+    else if(oASSC->C_or_D == 1)
+    {
         printf("Simulating Discharge Step\n");
+    }
+    else if(oASSC->C_or_D == 2)
+    {
+        printf("Simulating Chagre and Discharge\n");
+        printf("Switch Time: %1.3e sec\n", oASSC->switchTime);
+    }
+    else
+    {
+        printf("oASSC->C_or_D = %d not valid option.\n", oASSC->C_or_D);
+        printf("Defaulting to Charge Cycle.\n");
+        oASSC->C_or_D = 0;
+    }
+    
 
     printf("Start: %5.1lf (s), step: %4.1lf (s), final: %5.1lf (s)\n",
         oASSC->startTime, oASSC->stepTime, oASSC->totalTime);
@@ -143,7 +159,7 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
     if(oASSC->pristine != 0)
     {
         printf("Initial Concentration is not uniform!\n");
-        printf("Reading from file: $s\n", oASSC->initC_Name);
+        printf("Reading from file: %s\n", oASSC->initC_Name);
     }
 
     // BC
@@ -186,9 +202,11 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
     oASSC->POI = 1;
     oASSC->POI_TH = 150;
     oASSC->POI_DC = 1e-10;  // m^2/s
-    oASSC->C_or_D = 0;
+    oASSC->C_or_D = 0;      // default to charge
     oASSC->printMAP = 0;
-    oASSC->startTime = 0;
+    oASSC->startTime = 0;   // default, sec
+    oASSC->totalTime = 1;   // default, sec
+    oASSC->switchTime = 0;  // default, sec
     oASSC->D0 = 1;
     oASSC->CMax = 1e5;
     oASSC->C0 = 1e4;    // mol/m^3
@@ -242,6 +260,10 @@ void readInputASSC(char *FileName, ASSCopts *oASSC)
         else if (strcmp(tempC, "totalTime:") == 0)
         {
             oASSC->totalTime = tempD;
+        }
+        else if(strcmp(tempC, "SwitchTime:") == 0)
+        {
+            oASSC->switchTime = tempD;
         }
         else if (strcmp(tempC, "pixelResolution:") == 0)
         {
@@ -569,6 +591,103 @@ double mode1_penalty_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc, double 
                 pow((oASSC->TauMax*mesh->numCellsY),2);
 
     return w;
+}
+
+double mode1_penalty_discharge_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double dcc)
+{
+    /*
+        Function mode1_penalty_discharge_ASSC2D:
+        Inputs:
+            - pointer to ASSC options struct
+            - pointer to mesh struct
+            - distance (in pixels) from current collector
+        Outputs:
+            - directly outputs the weighting factor.
+    */
+    
+    double w = 0;
+
+    w = 1 - oASSC->TauE*dcc / (oASSC->TauE*mesh->numCellsY);
+
+    return w;
+}
+
+double satPenalty_Charge_ASSC2D(ASSCopts *oASSC, double *C, int index)
+{
+    /*
+        Function satPenalty_Charge_ASSC2D:
+        Inputs:
+            - pointer to ASSCopts struct
+            - pointer to concentration array
+            - index
+        Outputs:
+            - penalty factor
+        
+        Function will calculate the penalty factor due to saturation
+        during charging. Outputs the weight directly.
+    */
+
+    double w = 0;
+
+    w = sqrt(C[index] / oASSC->C0);
+
+    return w;
+}
+
+double satPenalty_Discharge_ASSC2D(ASSCopts *oASSC, double *C, int index)
+{
+    /*
+        Function satPenalty_Discharge_ASSC2D:
+        Inputs:
+            - pointer to ASSCopts struct
+            - pointer to concentration array
+            - index
+        Outputs:
+            - penalty factor
+        
+        Function will calculate the penalty factor due to saturation
+        during discharge. Outputs the weight directly.
+    */
+
+    double w = 0;
+
+    double sat_temp = (oASSC->C0 - C[index])/oASSC->C0;
+
+    // stop the flux if there are any anomalies
+    if(sat_temp <= 0)
+        return 0.0;
+
+    // else calculate and return
+
+    w = sqrt(C[index]/oASSC->C0);
+
+    return w;
+}
+
+void reg_Conc_ASSC2D(ASSCopts *oASSC, meshInfo *mesh, double *Conc)
+{
+    /*
+        Function reg_Conc:
+        Inputs:
+            - pointer to oASSC struct
+            - pointer to mesh info
+            - pointer to concentration array
+        Outputs:
+            - none.
+        
+        Function will regularize concentration. If Conc[i] > oASSC->C0,
+        we assign Conc[i] = oASSC->C0.
+    */
+
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        if(Conc[i] > oASSC->C0)
+        {
+            Conc[i] = oASSC->C0;
+        }
+    }
+
+    return;
 }
 
 void fixC_ASSC2D(meshInfo *mesh, double *DC, double *Conc)
@@ -1095,8 +1214,16 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     flux = mesh->SA/(mesh->dx * mesh->dy);
 
-    oASSC->faceFlux = appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
-
+    if (oASSC->C_or_D == 0 || oASSC->C_or_D == 2)
+    {
+        oASSC->faceFlux = appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
+        mesh->Charging = 1;
+    }else
+    {
+        oASSC->faceFlux = -appliedCurrent / (opts->charge * FARADAY * mesh->numFaces);
+        mesh->Charging = 0;
+    }
+    
     // search for boundaries
 
     int right, left, top, bottom;
@@ -1301,8 +1428,16 @@ void disc2D_ASSC(options     *opts,
             }
             else if(oASSC->mode == 2 || oASSC->mode == 3)
             {
-                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                if(mesh->Charging)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                        //  mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
+                }
+                
             }
         }
         else
@@ -1328,8 +1463,15 @@ void disc2D_ASSC(options     *opts,
             }
             else if(oASSC->mode == 2 || oASSC->mode == 3)
             {
-                RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                if(mesh->Charging)
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                          mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                        //  mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
+                }
             }
         }
         else
@@ -1357,8 +1499,15 @@ void disc2D_ASSC(options     *opts,
                 }
                 else if(oASSC->mode == 2 || oASSC->mode == 3)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                            // mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
+                    }
                 }
             }
             else
@@ -1387,8 +1536,15 @@ void disc2D_ASSC(options     *opts,
                 }
                 else if(oASSC->mode == 2 || oASSC->mode == 3)
                 {
-                    RHS[index] += -2 * oASSC->faceFlux * sqrt(C0[index] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Charge_ASSC2D(oASSC, C0, index) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[index] += -2 * oASSC->faceFlux * satPenalty_Discharge_ASSC2D(oASSC, C0, index);
+                            // mode1_penalty_discharge_ASSC2D(oASSC, mesh, (double)row + 1);
+                    }
                 }
             }
             else
@@ -1546,8 +1702,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             }
             else if(oASSC->mode == 2)
             {
-                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                if(mesh->Charging)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
         }
 
@@ -1572,8 +1735,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
             }
             else if(oASSC->mode == 2)
             {
-                RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
-                         mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                if(mesh->Charging)
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }else
+                {
+                    RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                        mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                }
             }
         }
 
@@ -1595,8 +1765,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 }
                 else if(oASSC->mode == 2)
                 {
-                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] / oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else if(DC[(row + 1) * nCols + col] != 0)
@@ -1624,8 +1801,15 @@ int RHS_Up2D_ASSC(meshInfo   *mesh,
                 }
                 else if(oASSC->mode == 2)
                 {
-                    RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
+                    if(mesh->Charging)
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * sqrt(C0[i] / oASSC->C0) *
                             mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }else
+                    {
+                        RHS[i] += -2 * oASSC->faceFlux * (sqrt(C0[i] /oASSC->C0)) *
+                            mode1_penalty_ASSC2D(oASSC, mesh, (double)row + 1, (double)(mesh->numCellsY - row));
+                    }
                 }
             }
             else if(DC[(row - 1) * nCols + col] != 0)
