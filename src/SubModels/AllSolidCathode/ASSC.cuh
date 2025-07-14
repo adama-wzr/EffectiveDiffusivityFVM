@@ -653,12 +653,12 @@ double satPenalty_Discharge_ASSC2D(ASSCopts *oASSC, double *C, int index)
 
     double sat_temp = (oASSC->C0 - C[index])/oASSC->C0;
 
+    // stop the flux if there are any anomalies
     if(sat_temp <= 0)
         return 0.0;
 
-    // w = sqrt(2 * sat_temp);
+    // else calculate and return
 
-    // w = 2*sqrt(C[index]/oASSC->C0) * sqrt(sat_temp);
     w = sqrt(C[index]/oASSC->C0);
 
     return w;

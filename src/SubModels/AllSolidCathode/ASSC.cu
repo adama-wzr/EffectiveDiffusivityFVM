@@ -60,10 +60,14 @@ int main(int argc, char **argv)
 
     ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+    /*
+    
+        Code to print sub-domains:
+
+    */
+
     // char subDomainName[100];
-
     // sprintf(subDomainName, "before.csv");
-
     // printSubDomains(&mesh, subDomain, subDomainName);
 
     if(oASSC.filterP == 1)
@@ -81,6 +85,11 @@ int main(int argc, char **argv)
         memset(subDomain, 0, sizeof(char) * mesh.nElements);
         ASSC2D_subDomainFF(&mesh, &oASSC, simData, subDomain);
 
+        /*
+    
+            Code to print sub-domains:
+
+        */
         // sprintf(subDomainName, "after.csv");
         // printSubDomains(&mesh, subDomain, subDomainName);
 
@@ -333,9 +342,15 @@ int main(int argc, char **argv)
         }
     }
 
+    // print concentration map
     printCandF_ASSC(&opts, &oASSC, &mesh, DC, Conc);
 
-    // Memory Management
+    /*
+    
+        Memory Management:
+
+    */
+   
     if(opts.useGPU)
         unInitGPU_SOR(&d_Coeff, &d_RHS, &d_Conc, & d_ConcTemp);
 
