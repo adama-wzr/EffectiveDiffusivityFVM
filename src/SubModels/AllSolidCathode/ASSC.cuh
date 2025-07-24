@@ -47,8 +47,9 @@ void printInputASSC(options *opts, ASSCopts *oASSC, meshInfo *mesh)
 
     printf("Initial concentration: %1.3e [mol/m^3]\n", oASSC->C0);
 
-    printf("Pixel Resolution: %1.3e\n", oASSC->pixelRes);
-
+    printf("Pixel Resolution (original): %1.3e\n", oASSC->pixelRes);
+    printf("Pixel Resolution (dx): %1.3e\n", mesh->dx);
+    
     printf("Current Density: %1.3e A/m^2\n", oASSC->currentDensity);
 
     if (oASSC->C_or_D == 0)
@@ -1194,7 +1195,7 @@ void SetBC_ASSC(options *opts, meshInfo *mesh, ASSCopts *oASSC, char *simData, i
 
     // Get applied current density
 
-    double Area = mesh->numCellsX * oASSC->pixelRes;
+    double Area = mesh->numCellsX * mesh->dx;
     // double Area = PI * pow(0.002, 2);
     // double Area = 0.002;
 
