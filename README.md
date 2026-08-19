@@ -50,7 +50,7 @@ nvcc -std=c++17 -Xcompiler -openmp -arch=sm_XX main.cu
 
 where we replace the "XX" by the compute capability of the GPU (i.e. compute capability 5.2 would be `-arch=sm_52`). To verify your compute capability, check here [CUDA GPUs - Compute Capability](https://developer.nvidia.com/cuda-gpus).
 
-**New Function Added:** I am in the process of refactoring the code as we make progress towards a more modular package. Therefore, some of the new code development is made as part of submodules to the main source code. The compilation of the main code did not change! For the new code, use the cmake file to build it.
+**New Function Added:** I am in the process of refactoring the code as we make progress towards a more modular package. Therefore, some of the new code development is made as part of submodules to the main source code. The compilation of the main code did not change! For the new code, use the `cmake` file to build it.
 
 While VisualStudio is recommended for building on Windows, if you do chose to build from the command line use the following:
 
@@ -61,7 +61,7 @@ While VisualStudio is recommended for building on Windows, if you do chose to bu
 5. On Linux, this should just create the executables in the build folder.
 
 
-Some of the refactoring is still roughly incomplete, and lacking proper documentation. This is intentinal: updates to the documentation and official tested capabilities will always accompany publications. If you want to use the package in the meanwhile, please reach out to Andre Adam or Dr. Xianglin Li, whose contant information are included in the [Authors](#code-authors) section.
+Some of the refactoring is still roughly incomplete, and lacking proper documentation. This is intentional: updates to the documentation and official tested capabilities will always accompany publications. If you want to use the package in the meanwhile, please reach out to Andre Adam or Dr. Xianglin Li, whose contact information are included in the [Authors](#code-authors) section.
 
 ## Required Files
 
@@ -78,6 +78,10 @@ All these files have to be in the same folder (or in the path for compilation/ru
 There currently isn't a consolidated publication for this package. Please cite one (or more) of the relevant publications below:
 
 - Sarabandi, A., **Adam, A.**, & Li, X. (2024). Influence of Electrolyte Saturation on the Performance of Li-O2 Batteries. ACS Applied Materials and Interfaces. https://doi.org/10.1021/acsami.4c12168
+- Kim, C., Li, Y., **Adam, A.**, ..., Yang, G. (2026) Self-generated phosphate/oxysulfide passivation from dry-processed single-crystal NMC811 stabilizes argyrodite sulfide interfaces. Energy Storage Materials. http://dx.doi.org/10.1016/j.ensm.2026.105009
+
+For the ASSC Model:
+- **Adam, A.**, Kim, C., Li, Y., Zhang, Y., Bilheux, J.-C., Li, X., Cheng, L., Bilheux, H., Yang, G. (2026). Operando neutron radiography validates a parameter-free transport–kinetics model for thick solid-state battery cathodes. Materials Horizons. https://doi.org/10.1039/D6MH00464D
 
 ## Code Authors
 
@@ -85,13 +89,18 @@ There currently isn't a consolidated publication for this package. Please cite o
     - [ResearchGate](https://www.researchgate.net/profile/Andre-Adam-2)
     - [GoogleScholar](https://scholar.google.com/citations?hl=en&user=aP_rDkMAAAAJ)
     - [GitHub](https://github.com/adama-wzr)
+- Core Collaborator: Chanho Kim
+    - [GoogleScholar](https://scholar.google.com/citations?user=T5NbvroAAAAJ&hl=en)
 - Advisor: Dr. Xianglin Li (Washingtion University in St. Louis)
     - [Website](https://xianglinli.wixsite.com/mysite)
     - [GoogleScholar](https://scholar.google.com/citations?user=8y0Vd8cAAAAJ&hl=en)
+- Advisor: Dr. Guang Yang (Oak Ridge National Laboratory)
+    - [Website](https://www.ornl.gov/staff-profile/guang-yang)
+    - [GoogleScholar](https://scholar.google.com/citations?user=Ph_5mDMAAAAJ&hl=en)
 
  ## Documentation
 
-The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository. The documentation only covers the old code in the Deff2D_GPU folder, which was part of the associated publication. A more comprehensive documentation folder will acompany major updates, version releases, and/or new publications.
+The documentation pdf is a more in-depth source on the mathematical formulation and code implementation, while also providing technical insight on how to run and modify the code included in this repository. The documentation only covers the old code in the Deff2D_GPU folder, which was part of the associated publication. A more comprehensive documentation folder will accompany major updates, version releases, and/or new publications.
 
 If there are any questions in the meanwhile, please feel free to reach out to one of the authors.
 
@@ -102,6 +111,8 @@ This work wouldn't be possible without the computational time awarded as part of
 This work used Expanse(GPU) at SDSC through allocations MAT210014 and MAT230071 from the Advanced Cyberinfrastructure Coordination Ecosystem: Services & Support (ACCESS) program, which is supported by National Science Foundation grants #2138259, #2138286, #2138307, #2137603, and #2138296.
 
 ## Upcoming Changes
+
+**I'm back - Andre**.
 
 Changes will be coming to this repository soon. A new branch for development will come out and start implementing some of the features described below, and they will only be committed to this folder once the changes are stable. For now, the folder with the 2D Effective Diffusivity code will remain unchanged.
 
