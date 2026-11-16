@@ -3395,6 +3395,164 @@ int Disc2D_Tau(options *opts,
     return 0;
 }
 
+int Disc2D_TauPB(options *opts,
+               meshInfo *mesh,
+               char *simObject,
+               double *DC,
+               double *CoeffMatrix,
+               double *RHS)
+{
+    /*
+        Function Disc2D_TauPB:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to char array simObject, which determines the POI
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization for a simulation of tortuosity. It will populate the
+        Coefficient Matrix array and the RHS array (where BC's are held). Periodic BC is 
+        applied for north-south
+    */
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy;
+    dx = mesh->dx;
+    dy = mesh->dy;
+
+    int row, col;
+    double dw, de, ds, dn;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i * 5 + k] = 0;
+        }
+
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+
+        if (simObject[i] != 0)
+        {
+            // 1 * phi = 0;
+            CoeffMatrix[i * 5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Participating fluid
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // West
+
+        if (col == 0)
+        {
+            // Left boundary
+            dw = DC[i];
+            RHS[i] -= opts->CLeft * dw * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= dw * dy / (dx / 2);
+        }
+        else if (simObject[i - 1] == 0)
+        {
+            // West is participating media
+            dw = DC[i];
+            CoeffMatrix[i * 5 + 1] = dw * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= dw * dy / dx;
+        }
+
+        // East
+
+        if (col == mesh->numCellsX - 1)
+        {
+            // Right Boundary
+            de = DC[i];
+            RHS[i] -= opts->CRight * de * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= de * dy / (dx / 2);
+        }
+        else if (simObject[i + 1] == 0)
+        {
+            // East is participating media
+            de = DC[i];
+            CoeffMatrix[i * 5 + 2] = de * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= de * dy / dx;
+        }
+
+        // North
+
+        if (row != 0)
+        {
+            if (simObject[i - nCols] == 0)
+            {
+                // Participating North
+                dn = DC[i];
+                CoeffMatrix[i * 5 + 4] = dn * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= dn * dx / dy;
+            }
+        }
+        else
+        {
+            // periodic north 
+            if(simObject[(mesh->numCellsY - 1)*mesh->numCellsX + col] == 0);
+            {
+                dn = DC[i];
+                CoeffMatrix[i*5 + 4] = dn * dx / dy;
+                CoeffMatrix[i*5 + 0] -= dn * dx / dy;
+            }
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if (simObject[i + nCols] == 0)
+            {
+                // Participating South
+                ds = DC[i];
+                CoeffMatrix[i * 5 + 3] = ds * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= ds * dx / dy;
+            }
+        }
+        else
+        {
+            if(simObject[col] == 0)
+            {
+                ds = DC[i];
+                CoeffMatrix[i*5 + 3] = ds * dx / dy;
+                CoeffMatrix[i*5 + 0] -= ds * dx / dy;
+            }
+        }
+    } // end for
+
+    return 0;
+}
+
 int Disc3D_Tau(options *opts,
                meshInfo *mesh,
                double *DC,
@@ -5477,7 +5635,14 @@ int Tau2D_Sim(options *opts)
 
     // Discretize equations
 
-    Disc2D_Tau(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+    if(opts->PB == 0)
+        Disc2D_Tau(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+    else
+    {
+        printf("Periodic Discret.\n");
+        Disc2D_TauPB(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+
+    }
 
     // Solve !
     if (opts->useGPU == 0)
