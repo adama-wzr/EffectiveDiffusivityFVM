@@ -2135,6 +2135,193 @@ int SetBC_DeffSetup3D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
     return 0;
 }
 
+int FloodFill2D_TortPB(meshInfo *mesh, char *simObject, tauInfo *tInfo)
+{
+    /*
+        FloodFill2D_TortPB function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to simObject array
+            - pointer to tauInfo
+        Outputs:
+            - None
+
+        The function will identify all participating media and all
+        pore spaces that are non-participating. This version
+        incorporates periodic boundaries.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        if (simObject[i] == 0)
+            Domain[i] = -1; // permeable media
+        else
+            Domain[i] = 1; // impermeable
+    }
+
+    // Find pereable boundaries, add to list
+
+    std::set<coordPair> cList;
+
+    int left = 0;
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        // set left
+        if (Domain[row * mesh->numCellsX + left] == -1)
+        {
+            Domain[row * mesh->numCellsX + left] = 0;
+            cList.insert(std::pair(left, row));
+        }
+        // set right
+        if (Domain[row * mesh->numCellsX + right] == -1)
+        {
+            Domain[row * mesh->numCellsX + right] = 0;
+            cList.insert(std::pair(right, row));
+        }
+    }
+
+    // Search full domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // read coordinates
+
+        int col = pop.first;
+        int row = pop.second;
+
+        /*
+            We need to check North, South, East, and West for more fluid:
+
+            North = col + 0, row - 1
+            South = col + 0, row + 1
+            East  = col + 1, row + 0
+            West  = col - 1, row + 0
+
+            Note that diagonals are not considered a connection.
+            This code assumes periodic north-south.
+        */
+        int tempRow, tempCol;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+
+        if(row != 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+        else
+        {
+            // Periodic
+            tempRow = mesh->numCellsY - 1;
+            tempIndex = tempRow * mesh->numCellsX + col;
+            if(Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // South
+
+        tempCol = col;
+
+        if (row != mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+        else
+        {
+            // periodic south
+            tempRow = 0;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if(Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+
+        if (col != 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // East
+
+        tempRow = row;
+
+        if (col < mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // end while
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    long int count = 0;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        if (Domain[i] == -1)
+            simObject[i] = 1;
+        else if (Domain[i] == 0)
+            count++;
+    }
+
+    tInfo->eVF = (float)count / mesh->nElements;
+
+    // Memory management
+
+    free(Domain);
+
+    return 0;
+}
+
+
 int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 {
     /*
@@ -5258,7 +5445,10 @@ int Tau2D_Sim(options *opts)
 
     // Flood-Fill for non-participating media
 
-    FloodFill2D_Tort(&mesh, simObject, &tInfo);
+    if (opts->PB == 0)
+        FloodFill2D_Tort(&mesh, simObject, &tInfo);
+    else
+        FloodFill2D_TortPB(&mesh, simObject, &tInfo);
 
     // Discretize
 
