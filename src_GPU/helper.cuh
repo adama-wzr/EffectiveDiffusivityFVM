@@ -123,6 +123,7 @@ typedef struct
     double StartTime;        // starting time for the simulation
     int StartMapFlag;        // use CMAP as input?
     char *StartMapName;      // input CMAP name
+    int PB;                  // periodic boundary conditions
 } options;
 
 // Mesh related information
@@ -150,6 +151,7 @@ typedef struct
 
 typedef struct
 {
+    int PB;
     float VF;
     float eVF;
     float Deff;
@@ -516,6 +518,20 @@ int printOpts_Tau(options *opts)
         printf("Output File Name: %s\n", opts->outputFilename);
     }
 
+    if(opts->PB == 0)
+    {
+        printf("No Periodic Boundaries!\n");
+    }
+    else if(opts->PB == 1)
+    {
+        printf("Periodic Boundary Selected!\n");
+    }
+    else
+    {
+        printf("Something else selected, defaulting to no PB\n");
+        opts->PB = 0;
+    }
+
     // Options related to multi-threading/GPU
 
     if (opts->useGPU == 1)
@@ -591,7 +607,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->tauSim = 0;
     opts->TF_Flag = 0;
     opts->StartMapFlag = 0;
-
+    opts->PB = 0;
     /*
     --------------------------------------------------------------------------------
 
@@ -633,6 +649,10 @@ void readInputGeneral(char *FileName, options *opts)
         else if (strcmp(tempC, "MeshAmpX:") == 0)
         {
             opts->MeshIncreaseX = (int)tempD;
+        }
+        else if (strcmp(tempC, "PB:") == 0)
+        {
+            opts->PB = (int)tempD;
         }
         else if (strcmp(tempC, "MeshAmpY:") == 0)
         {
