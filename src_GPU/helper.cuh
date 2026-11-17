@@ -3582,7 +3582,7 @@ int Disc2D_TauPB(options *opts,
         else
         {
             // periodic north 
-            if(simObject[(mesh->numCellsY - 1)*mesh->numCellsX + col] == 0);
+            if(simObject[(mesh->numCellsY - 1)*mesh->numCellsX + col] == 0)
             {
                 dn = DC[i];
                 CoeffMatrix[i*5 + 4] = dn * dx / dy;
