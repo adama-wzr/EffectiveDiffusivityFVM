@@ -123,6 +123,7 @@ typedef struct
     double StartTime;        // starting time for the simulation
     int StartMapFlag;        // use CMAP as input?
     char *StartMapName;      // input CMAP name
+    int PB;                  // periodic boundary conditions
 } options;
 
 // Mesh related information
@@ -150,6 +151,7 @@ typedef struct
 
 typedef struct
 {
+    int PB;
     float VF;
     float eVF;
     float Deff;
@@ -303,9 +305,72 @@ __global__ void JI_SOR2D_kernel(
     }
 }
 
+
+__global__ void JI_SOR2DPBy_kernel(
+    double *A,
+    double *x,
+    double *b,
+    double *xNew,
+    long int nElements,
+    int nCols,
+    int nRows)
+{
+    unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    int myRow = myIdx/nCols;
+    int myCol = myIdx - myRow * nCols;
+    double w = 2.0 / 3.0;
+
+    if (myIdx < nElements)
+    {
+        double sigma = 0;
+        for (int j = 1; j < 5; j++)
+        {
+            if (A[myIdx * 5 + j] != 0)
+            {
+                if (j == 1)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx - 1];
+                }
+                else if (j == 2)
+                {
+                    sigma += A[myIdx * 5 + j] * x[myIdx + 1];
+                }
+                else if (j == 3)
+                {
+                    if(myRow == nRows - 1)
+                    {
+                        // Periodic South
+                        sigma += A[myIdx * 5 + j] * x[myCol];
+                    }
+                    else
+                    {
+                        // normal south
+                        sigma += A[myIdx * 5 + j] * x[myIdx + nCols];
+                    }
+                }
+                else if (j == 4)
+                {
+                    if(myRow == 0)
+                    {
+                        // Periodic North
+                        sigma += A[myIdx * 5 + j] * x[(nRows - 1)*nCols + myCol];
+                    }
+                    else
+                    {
+                        // normal North
+                        sigma += A[myIdx * 5 + j] * x[myIdx - nCols];
+                    }
+
+                }
+            }
+        }
+        xNew[myIdx] = (1.0 - w) * x[myIdx] + w / A[myIdx * 5 + 0] * (b[myIdx] - sigma);
+    }
+}
+
 /*
 
-    Functions handling user input:
+   Functions handling user input:
 
 */
 
@@ -516,6 +581,20 @@ int printOpts_Tau(options *opts)
         printf("Output File Name: %s\n", opts->outputFilename);
     }
 
+    if(opts->PB == 0)
+    {
+        printf("No Periodic Boundaries!\n");
+    }
+    else if(opts->PB == 1)
+    {
+        printf("Periodic Boundary Selected!\n");
+    }
+    else
+    {
+        printf("Something else selected, defaulting to no PB\n");
+        opts->PB = 0;
+    }
+
     // Options related to multi-threading/GPU
 
     if (opts->useGPU == 1)
@@ -591,7 +670,7 @@ void readInputGeneral(char *FileName, options *opts)
     opts->tauSim = 0;
     opts->TF_Flag = 0;
     opts->StartMapFlag = 0;
-
+    opts->PB = 0;
     /*
     --------------------------------------------------------------------------------
 
@@ -633,6 +712,10 @@ void readInputGeneral(char *FileName, options *opts)
         else if (strcmp(tempC, "MeshAmpX:") == 0)
         {
             opts->MeshIncreaseX = (int)tempD;
+        }
+        else if (strcmp(tempC, "PB:") == 0)
+        {
+            opts->PB = (int)tempD;
         }
         else if (strcmp(tempC, "MeshAmpY:") == 0)
         {
@@ -2115,6 +2198,193 @@ int SetBC_DeffSetup3D(options *opts, meshInfo *mesh, int *BC, double *BC_Value)
     return 0;
 }
 
+int FloodFill2D_TortPB(meshInfo *mesh, char *simObject, tauInfo *tInfo)
+{
+    /*
+        FloodFill2D_TortPB function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to simObject array
+            - pointer to tauInfo
+        Outputs:
+            - None
+
+        The function will identify all participating media and all
+        pore spaces that are non-participating. This version
+        incorporates periodic boundaries.
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        if (simObject[i] == 0)
+            Domain[i] = -1; // permeable media
+        else
+            Domain[i] = 1; // impermeable
+    }
+
+    // Find pereable boundaries, add to list
+
+    std::set<coordPair> cList;
+
+    int left = 0;
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        // set left
+        if (Domain[row * mesh->numCellsX + left] == -1)
+        {
+            Domain[row * mesh->numCellsX + left] = 0;
+            cList.insert(std::pair(left, row));
+        }
+        // set right
+        if (Domain[row * mesh->numCellsX + right] == -1)
+        {
+            Domain[row * mesh->numCellsX + right] = 0;
+            cList.insert(std::pair(right, row));
+        }
+    }
+
+    // Search full domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coordPair pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // read coordinates
+
+        int col = pop.first;
+        int row = pop.second;
+
+        /*
+            We need to check North, South, East, and West for more fluid:
+
+            North = col + 0, row - 1
+            South = col + 0, row + 1
+            East  = col + 1, row + 0
+            West  = col - 1, row + 0
+
+            Note that diagonals are not considered a connection.
+            This code assumes periodic north-south.
+        */
+        int tempRow, tempCol;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+
+        if(row != 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+        else
+        {
+            // Periodic
+            tempRow = mesh->numCellsY - 1;
+            tempIndex = tempRow * mesh->numCellsX + col;
+            if(Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // South
+
+        tempCol = col;
+
+        if (row != mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+        else
+        {
+            // periodic south
+            tempRow = 0;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if(Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+
+        if (col != 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // East
+
+        tempRow = row;
+
+        if (col < mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::pair(tempCol, tempRow));
+            }
+        }
+
+        // end while
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    long int count = 0;
+
+    for (int i = 0; i < mesh->nElements; i++)
+    {
+        if (Domain[i] == -1)
+            simObject[i] = 1;
+        else if (Domain[i] == 0)
+            count++;
+    }
+
+    tInfo->eVF = (float)count / mesh->nElements;
+
+    // Memory management
+
+    free(Domain);
+
+    return 0;
+}
+
+
 int FloodFill2D_Tort(meshInfo *mesh, char *simObject, tauInfo *tInfo)
 {
     /*
@@ -3181,6 +3451,164 @@ int Disc2D_Tau(options *opts,
                 ds = DC[i];
                 CoeffMatrix[i * 5 + 3] = ds * dx / dy;
                 CoeffMatrix[i * 5 + 0] -= ds * dx / dy;
+            }
+        }
+    } // end for
+
+    return 0;
+}
+
+int Disc2D_TauPB(options *opts,
+               meshInfo *mesh,
+               char *simObject,
+               double *DC,
+               double *CoeffMatrix,
+               double *RHS)
+{
+    /*
+        Function Disc2D_TauPB:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to char array simObject, which determines the POI
+            - pointer to double array DC holding diffusion coefficients
+            - pointer to double array CoeffMatrix Coefficient Matrix
+            - pointer to double array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization for a simulation of tortuosity. It will populate the
+        Coefficient Matrix array and the RHS array (where BC's are held). Periodic BC is 
+        applied for north-south
+    */
+    // Set necessary variables
+
+    int nCols;
+    nCols = mesh->numCellsX;
+
+    double dx, dy;
+    dx = mesh->dx;
+    dy = mesh->dy;
+
+    int row, col;
+    double dw, de, ds, dn;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        row = i / nCols;
+        col = i - row * nCols;
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 5; k++)
+        {
+            CoeffMatrix[i * 5 + k] = 0;
+        }
+
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+
+        if (simObject[i] != 0)
+        {
+            // 1 * phi = 0;
+            CoeffMatrix[i * 5 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Participating fluid
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+        */
+
+        // West
+
+        if (col == 0)
+        {
+            // Left boundary
+            dw = DC[i];
+            RHS[i] -= opts->CLeft * dw * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= dw * dy / (dx / 2);
+        }
+        else if (simObject[i - 1] == 0)
+        {
+            // West is participating media
+            dw = DC[i];
+            CoeffMatrix[i * 5 + 1] = dw * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= dw * dy / dx;
+        }
+
+        // East
+
+        if (col == mesh->numCellsX - 1)
+        {
+            // Right Boundary
+            de = DC[i];
+            RHS[i] -= opts->CRight * de * dy / (dx / 2);
+            CoeffMatrix[i * 5 + 0] -= de * dy / (dx / 2);
+        }
+        else if (simObject[i + 1] == 0)
+        {
+            // East is participating media
+            de = DC[i];
+            CoeffMatrix[i * 5 + 2] = de * dy / dx;
+            CoeffMatrix[i * 5 + 0] -= de * dy / dx;
+        }
+
+        // North
+
+        if (row != 0)
+        {
+            if (simObject[i - nCols] == 0)
+            {
+                // Participating North
+                dn = DC[i];
+                CoeffMatrix[i * 5 + 4] = dn * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= dn * dx / dy;
+            }
+        }
+        else
+        {
+            // periodic north 
+            if(simObject[(mesh->numCellsY - 1)*mesh->numCellsX + col] == 0)
+            {
+                dn = DC[i];
+                CoeffMatrix[i*5 + 4] = dn * dx / dy;
+                CoeffMatrix[i*5 + 0] -= dn * dx / dy;
+            }
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if (simObject[i + nCols] == 0)
+            {
+                // Participating South
+                ds = DC[i];
+                CoeffMatrix[i * 5 + 3] = ds * dx / dy;
+                CoeffMatrix[i * 5 + 0] -= ds * dx / dy;
+            }
+        }
+        else
+        {
+            if(simObject[col] == 0)
+            {
+                ds = DC[i];
+                CoeffMatrix[i*5 + 3] = ds * dx / dy;
+                CoeffMatrix[i*5 + 0] -= ds * dx / dy;
             }
         }
     } // end for
@@ -4381,6 +4809,126 @@ int JI2D_SOR(double     *Coeff,
     return 0;
 }
 
+int JI2D_PBy_SOR(double     *Coeff,
+             double     *RHS,
+             double     *Concentration,
+             double     *d_Coeff,
+             double     *d_RHS,
+             double     *d_Conc,
+             double     *d_ConcTemp,
+             options    *opts,
+             meshInfo   *mesh)
+{
+    /*
+        Function JI2D_PBy_SOR:
+        Inputs:
+            - pointer to coefficient matrix array
+            - pointer to RHS matrix array
+            - pointer to Concentration distribution array
+            - pointer to device coefficient matrix
+            - pointer to device right-hand side array
+            - pointer to device concentration array
+            - pointer to device temporary concentration array storage
+            - pointer to options struct
+            - pointer to mesh struct
+        Outputs:
+            - None
+
+        This function will manage the host-device interactions for the Jacobi Iteration method
+        in 2D, with a standard over-relaxation applied. The function will manage data transfers,
+        convergence criteria, and kernel coordination. This is done with periodic boundaries in y.
+    */
+
+    long int iterCount = 0;
+    int threads_per_block = 128;
+    int numBlocks = mesh->nElements / threads_per_block + 1;
+
+    double pctChange = 1;
+    int iterToCheck = 100;
+
+    // copy arrays into GPU
+
+    CHECK_CUDA(cudaMemcpy(d_Conc, Concentration,
+                          sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice));
+
+    CHECK_CUDA(cudaMemcpy(d_ConcTemp, Concentration,
+                          sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice));
+
+    CHECK_CUDA(cudaMemcpy(d_RHS, RHS,
+                          sizeof(double) * mesh->nElements, cudaMemcpyHostToDevice));
+
+    CHECK_CUDA(cudaMemcpy(d_Coeff, Coeff,
+                          sizeof(double) * mesh->nElements * 5, cudaMemcpyHostToDevice));
+
+    // Create Array to store temp Conc
+
+    double *TempConc = (double *)malloc(sizeof(double) * mesh->nElements);
+
+    memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+
+    // start the main loop
+
+    while (iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
+    {
+        // call kernel
+
+        JI_SOR2DPBy_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
+                                                          mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        // check convergence
+
+        if (iterCount % iterToCheck == 0 && iterCount != 0)
+        {
+            // copy array from device to host
+            CHECK_CUDA(cudaMemcpy(Concentration, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
+
+            // compare
+            double sum = 0;
+            long int count = 0;
+
+            for (int i = 0; i < mesh->nElements; i++)
+            {
+                if (Concentration[i] != 0)
+                {
+                    sum += fabs((Concentration[i] - TempConc[i]) / Concentration[i]);
+                    count++;
+                }
+            }
+            // calculate the change
+            pctChange = sum / count;
+            // copy memory to temp conc
+            memcpy(TempConc, Concentration, sizeof(double) * mesh->nElements);
+        }
+
+        if (opts->SteadyStateFlag && iterCount %  100000 == 0)
+        {
+            printf("Iter %ld, Conv %1.3e, Target %1.3e\n", iterCount, pctChange, opts->ConvergeCriteria);
+        }
+
+        // update d_Conc = d_ConcTemp
+
+        CHECK_CUDA(cudaMemcpy(d_ConcTemp, d_Conc, sizeof(double) * mesh->nElements, cudaMemcpyDeviceToDevice));
+
+        // increment
+        iterCount++;
+    }
+
+    // copy the solution
+
+    CHECK_CUDA(cudaMemcpy(Concentration, d_ConcTemp,
+                          sizeof(double) * mesh->nElements, cudaMemcpyDeviceToHost));
+
+    // store info to print
+
+    mesh->conv = pctChange;
+    mesh->iterCount = iterCount;
+
+    // free memory
+
+    free(TempConc);
+
+    return 0;
+}
+
 int JI2D_TransientUpdate(
              double     *RHS,
              double     *Concentration,
@@ -5238,7 +5786,10 @@ int Tau2D_Sim(options *opts)
 
     // Flood-Fill for non-participating media
 
-    FloodFill2D_Tort(&mesh, simObject, &tInfo);
+    if (opts->PB == 0)
+        FloodFill2D_Tort(&mesh, simObject, &tInfo);
+    else
+        FloodFill2D_TortPB(&mesh, simObject, &tInfo);
 
     // Discretize
 
@@ -5267,13 +5818,24 @@ int Tau2D_Sim(options *opts)
 
     // Discretize equations
 
-    Disc2D_Tau(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+    if(opts->PB == 0)
+        Disc2D_Tau(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+    else
+    {
+        printf("Periodic Discret.\n");
+        Disc2D_TauPB(opts, &mesh, simObject, DC, CoeffMatrix, RHS);
+
+    }
 
     // Solve !
     if (opts->useGPU == 0)
     {
         omp_set_num_threads(opts->nThreads);
-
+        if(opts->PB == 1)
+        {
+            printf("Periodic Boundary not currently implemented on CPU\n");
+            return 1;
+        }
         GS2D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
     }
     else
@@ -5307,9 +5869,17 @@ int Tau2D_Sim(options *opts)
         initGPU_2DSOR(&d_Coeff, &d_RHS, &d_Conc, &d_ConcTemp, &mesh);
 
         // // Solve
+        if (opts->PB == 0)
+        {
+            JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                    d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
 
-        JI2D_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
-                 d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+        }
+        else
+        {
+            JI2D_PBy_SOR(CoeffMatrix, RHS, Concentration, d_Coeff,
+                    d_RHS, d_Conc, d_ConcTemp, opts, &mesh);
+        }
 
         // // Free GPU memory
 
@@ -5373,9 +5943,12 @@ int Tau2D_Sim(options *opts)
 
     // test CoM
 
-    double CoM = CoM2D(CoeffMatrix, Concentration, RHS, &mesh);
+    if(opts->PB == 0 && opts->verbose == 1)
+    {
+        double CoM = CoM2D(CoeffMatrix, Concentration, RHS, &mesh);
+        printf("CoM = %lf\n", CoM);
+    } // no CoM for PB yet
 
-    printf("CoM = %lf\n", CoM);
 
     // Memory management
     free(RHS);
