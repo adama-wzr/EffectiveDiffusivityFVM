@@ -30,7 +30,7 @@ Code contributors:
 Andre Adam.
 
 Last Update:
-07/11/2025
+11/20/2026 - Periodic Tau 2D and 3D
 
 */
 
@@ -212,6 +212,108 @@ typedef std::pair<int, int> coordPair;
 */
 
 // 3D GPU SOR
+
+__global__ void ji_sor3d_kernelpb(
+    double *A,
+    double *x,
+    double *b,
+    double *xNew,
+    long int nElements,
+    int nCols,
+    int nRows,
+    int nSlices)
+{
+    /*
+
+        JI_SOR3D_kernelPB:
+        Inputs:
+            - pointer to coefficient matrix (device memory)
+            - pointer to x-vector (device memory)
+            - pointer to b/RHS (device memory)
+            - pointer to new x-vector (device memory)
+            - long int nElements, passed by value
+            - int nCols, passed by value
+            - int nRows, passed by value
+            - int nSlices, passed by value
+        Outputs:
+            - none.
+        
+        The function calculates the standard over-relaxed Jacobi Iteration
+        for a coefficient matrix with 7 main diagonals. For indexing reference,
+        check the discretization function. This function assumes a periodic
+        boundary conditions for the directions parallel to the mass flux.
+    */
+    unsigned int myIdx = blockIdx.x * blockDim.x + threadIdx.x;
+    int mySlice = myIdx / (nCols * nRows);
+    int myRow = (myIdx - mySlice * nRows * nCols)/nCols;
+    int myCol = myIdx - mySlice * nRows * nCols - myRow * nCols;
+    double w = 2.0 / 3.0;
+
+    if (myIdx < nElements)
+    {
+        double sigma = 0;
+        for (int j = 1; j < 7; j++)
+        {
+            if (A[myIdx * 7 + j] > 1e-15)
+            {
+                if (j == 1)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx - 1];
+                }
+                else if (j == 2)
+                {
+                    sigma += A[myIdx * 7 + j] * x[myIdx + 1];
+                }
+                else if (j == 3)
+                {
+                    if (myRow == nRows - 1)
+                    {
+                        // Periodic South
+                        sigma += A[myIdx * 7 + j] * x[mySlice * nRows * nCols + myCol];
+                    } else
+                    {
+                        sigma += A[myIdx * 7 + j] * x[myIdx + nCols];
+                    }
+                }
+                else if (j == 4)
+                {
+                    if (myRow == 0)
+                    {
+                        // Periodic North
+                        sigma += A[myIdx * 7 + j] * x[mySlice * nRows * nCols + (nRows - 1) * nCols + myCol];
+                    } else
+                    {
+                        sigma += A[myIdx * 7 + j] * x[myIdx - nCols];
+                    }   
+                }
+                else if (j == 5)
+                {
+                    if (mySlice == nSlices - 1)
+                    {
+                        // Periodic Back
+                        sigma += A[myIdx * 7 + j] * x[myRow * nCols + myCol];
+                    } else
+                    {
+                        sigma += A[myIdx * 7 + j] * x[myIdx + nCols * nRows];
+                    }
+                    
+                }
+                else if (j == 6)
+                {
+                    if (mySlice == 0)
+                    {
+                        // Periodic Front
+                        sigma += A[myIdx * 7 + j] * x[(nSlices - 1) * nRows * nCols + myRow * nCols + myCol];
+                    } else
+                    {
+                        sigma += A[myIdx * 7 + j] * x[myIdx - nCols * nRows];
+                    }
+                }
+            }
+        }
+        xNew[myIdx] = (1.0 - w) * x[myIdx] + w / A[myIdx * 7 + 0] * (b[myIdx] - sigma);
+    }
+}
 
 __global__ void JI_SOR3D_kernel(
     double *A,
@@ -2893,6 +2995,260 @@ int FloodFill2D_DeffSetup(meshInfo *mesh, int *BC, double *DC)
     return 0;
 }
 
+int FloodFill3D_PB(meshInfo *mesh, double *DC, tauInfo *tInfo)
+{
+    /*
+        FloodFill3D_PB function:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to array with DC's
+        Outputs:
+            - None
+
+        The function will search the domain, and will find non-participating media.
+        The non-participating media will have the diffusion coefficient set to 0, and
+        will receive the "wall" treatment. This one includes periodic BCs
+    */
+
+    char *Domain = (char *)malloc(mesh->nElements * sizeof(char));
+
+    // Initialize all the impermeable matter in the domain:
+
+    long int count = 0;
+
+    for (long int index = 0; index < mesh->nElements; index++)
+    {
+        if (DC[index] == 0)
+        {
+            Domain[index] = 1;
+        }
+        else
+        {
+            Domain[index] = -1;
+            count++;
+        }
+    }
+
+    // calculate VF
+
+    tInfo->VF = (double)count / mesh->nElements;
+
+    // Find Fluid in both boundaries, add to open list
+
+    std::set<coord> cList;
+
+    int left = 0;
+    int right = mesh->numCellsX - 1;
+
+    for (int row = 0; row < mesh->numCellsY; row++)
+    {
+        for (int slice = 0; slice < mesh->numCellsZ; slice++)
+        {
+            long int indexL = slice * mesh->numCellsX * mesh->numCellsY + row * mesh->numCellsX + left;
+            long int indexR = slice * mesh->numCellsX * mesh->numCellsY + row * mesh->numCellsX + right;
+            // set left
+            if (Domain[indexL] == -1)
+            {
+                Domain[indexL] = 0;
+                cList.insert(std::make_tuple(left, row, slice));
+            }
+            // set right
+            if (Domain[indexR] == -1)
+            {
+                Domain[indexR] = 0;
+                cList.insert(std::tuple(right, row, slice));
+            }
+        }
+    }
+
+    // Search Full Domain
+
+    while (!cList.empty())
+    {
+        // pop first item on the list
+        coord pop = *cList.begin();
+
+        // remove from open list
+        cList.erase(cList.begin());
+
+        // get coordinates from the list
+        int col = std::get<0>(pop);
+        int row = std::get<1>(pop);
+        int slice = std::get<2>(pop);
+
+        /*
+            We need to check North, South, East, West, Back, and Front for more fluid:
+
+            North = col + 0, row - 1, slice + 0
+            South = col + 0, row + 1, slice + 0
+            East  = col + 1, row + 0, slice + 0
+            West  = col - 1, row + 0, slice + 0
+            Front = col + 0, row + 0, slice - 1
+            Back  = col + 0, row + 0, slice + 1
+
+            Note that diagonals are not considered a connection.
+            This code assumes periodic boundary conditions.
+        */
+
+        int tempRow, tempCol, tempSlice;
+        long int tempIndex;
+
+        // North
+
+        tempCol = col;
+        tempSlice = slice;
+
+        if (row != 0)
+        {
+            tempRow = row - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        } else
+        {
+            // Periodic
+            tempRow = mesh->numCellsY - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            tempRow = row + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        } else
+        {
+            // Periodic
+            tempRow = 0;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // Front
+
+        tempCol = col;
+        tempRow = row;
+
+        if (slice != 0)
+        {
+            tempSlice = slice - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        } else
+        {
+            // Periodic
+            tempSlice = mesh->numCellsZ - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // Back
+
+        if (slice != mesh->numCellsZ - 1)
+        {
+            tempSlice = slice + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+        else
+        {
+            // Periodic
+            tempSlice = 0;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // West
+
+        tempRow = row;
+        tempSlice = slice;
+
+        if (col != 0)
+        {
+            tempCol = col - 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+
+        // East
+
+        if (col != mesh->numCellsX - 1)
+        {
+            tempCol = col + 1;
+            tempIndex = tempSlice * mesh->numCellsX * mesh->numCellsY + tempRow * mesh->numCellsX + tempCol;
+            if (Domain[tempIndex] == -1)
+            {
+                Domain[tempIndex] = 0;
+                cList.insert(std::tuple(tempCol, tempRow, tempSlice));
+            }
+        }
+        // repeat until cList is empty
+    }
+
+    // Every flag that is still -1 means a non-participating media
+
+    long int npCount = 0;
+
+    for (int index = 0; index < mesh->nElements; index++)
+    {
+        if (Domain[index] != -1)
+        {
+            continue;
+        }
+        else
+            DC[index] = 0;
+        npCount++;
+    }
+
+    // Calculate effective volume fraction
+
+    tInfo->eVF = (double)(count - npCount) / mesh->nElements;
+
+
+    // memory management
+    free(Domain);
+    return 0;
+}
+
+
 int FloodFill3D_Tau(meshInfo *mesh, double *DC, tauInfo *tInfo)
 {
     /*
@@ -3612,6 +3968,213 @@ int Disc2D_TauPB(options *opts,
             }
         }
     } // end for
+
+    return 0;
+}
+
+int Disc3D_TauPB(options *opts,
+               meshInfo *mesh,
+               double *DC,
+               double *CoeffMatrix,
+               double *RHS)
+{
+    /*
+        Function Disc3D_TauPB:
+        Inputs:
+            - pointer to options data structure
+            - pointer to mesh data structure
+            - pointer to float array DC holding diffusion coefficients
+            - pointer to float array CoeffMatrix Coefficient Matrix
+            - pointer to float array RHS holding right-hand side of discretized system.
+        Output:
+            - none.
+
+        Function creates a discretization for a simulation of tortuosity. It will populate the
+        Coefficient Matrix array and the RHS array (where BC's are held). This version is
+        for periodic BCs
+    */
+
+    // Set necessary variables
+
+    int nCols, nRows, nSlices;
+    nCols = mesh->numCellsX;
+    nRows = mesh->numCellsY;
+    nSlices = mesh->numCellsZ;
+
+    float dx, dy, dz;
+    dx = mesh->dx;
+    dy = mesh->dy;
+    dz = mesh->dz;
+
+    int row, col, slice;
+    float dw, de, ds, dn, db, df;
+
+    for (long int i = 0; i < mesh->nElements; i++)
+    {
+        // dissolve index into rows and cols
+        slice = i / (nRows * nCols);
+        row = (i - slice * nRows * nCols) / nCols;
+        col = (i - slice * nRows * nCols - row * nCols);
+
+        // make sure CoeffMatrix and RHS are zero
+
+        RHS[i] = 0;
+        for (int k = 0; k < 7; k++)
+        {
+            CoeffMatrix[i * 7 + k] = 0;
+        }
+
+        /*
+            Correct for non-participating media, analogous to
+            pressure-decoupled solid velocity correction:
+            https://doi.org/10.1016/j.ijheatmasstransfer.2009.12.057
+        */
+
+        if (DC[i] == 0)
+        {
+            // 1 * phi = 0;
+            CoeffMatrix[i * 7 + 0] = 1;
+            RHS[i] = 0;
+            continue;
+        }
+
+        // Participating fluid
+
+        /*
+            Indexing for coeff marix:
+
+            0 : P       i
+            1 : W       i - 1
+            2 : E       i + 1
+            3 : S       i + nCols
+            4 : N       i - nCols
+            5 : B       i + nRows * nCols
+            6 : F       i - nRows * nCols
+        */
+
+        // West
+
+        if (col == 0)
+        {
+            // Left boundary
+            dw = DC[i];
+            RHS[i] -= opts->CLeft * dw * (dy * dz) / (dx / 2);
+            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) / (dx / 2);
+        }
+        else if (DC[i - 1] != 0)
+        {
+            // West is participating media
+            dw = DC[i];
+            CoeffMatrix[i * 7 + 1] = dw * (dy * dz) / dx;
+            CoeffMatrix[i * 7 + 0] -= dw * (dy * dz) / dx;
+        }
+
+        // East
+
+        if (col == mesh->numCellsX - 1)
+        {
+            // Right boundary
+            de = DC[i];
+            RHS[i] -= opts->CRight * de * (dy * dz) / (dx / 2);
+            CoeffMatrix[i * 7 + 0] -= de * (dy * dz) / (dx / 2);
+        }
+        else if (DC[i + 1] != 0)
+        {
+            // East is participating media
+            de = DC[i];
+            CoeffMatrix[i * 7 + 2] = de * (dy * dz) / dx;
+            CoeffMatrix[i * 7 + 0] -= de * (dy * dz) / dx;
+        }
+
+        // South
+
+        if (row != mesh->numCellsY - 1)
+        {
+            if (DC[i + nCols] != 0)
+            {
+                // Participating South
+                ds = DC[i];
+                CoeffMatrix[i * 7 + 3] = ds * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= ds * (dx * dz) / dy;
+            }
+        } else
+        {
+            if (DC[slice * nCols * nRows + col] != 0)
+            {
+                // Periodioc BC
+                ds = DC[i];
+                CoeffMatrix[i * 7 + 3] = ds * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= ds * (dx *dz) / dy;
+            }
+        }
+
+        // North
+
+        if (row != 0)
+        {
+            if (DC[i - nCols] != 0)
+            {
+                // Participating North
+                dn = DC[i];
+                CoeffMatrix[i * 7 + 4] = dn * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= dn * (dx * dz) / dy;
+            }
+        } else
+        {
+            if (DC[slice * nCols * nRows + (nRows - 1) * nCols + col] != 0)
+            {
+                // Periodic North
+                dn = DC[i];
+                CoeffMatrix[i * 7 + 4] = dn * (dx * dz) / dy;
+                CoeffMatrix[i * 7 + 0] -= dn * (dx * dz) / dy;
+            }
+        }
+
+        // Back
+
+        if (slice != mesh->numCellsZ - 1)
+        {
+            if (DC[i + nCols * nRows] != 0)
+            {
+                // Participating Back
+                db = DC[i];
+                CoeffMatrix[i * 7 + 5] = db * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= db * (dx * dy) / dz;
+            }
+        } else
+        {
+            if (DC[row * nCols + col] != 0)
+            {
+                // Periodic Back
+                db = DC[i];
+                CoeffMatrix[i * 7 + 5] = db * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= db * (dx * dy) / dz;
+            }
+        }
+
+        // Front
+
+        if (slice != 0)
+        {
+            if (DC[i - nCols * nRows] != 0)
+            {
+                // Participating Front
+                df = DC[i];
+                CoeffMatrix[i * 7 + 6] = df * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= df * (dx * dy) / dz;
+            }
+        }
+        else
+        {
+            if (DC[(nSlices - 1) * nRows * nCols + row * nCols + col] != 0)
+            {
+                // Periodic Back
+                db = DC[i];
+                CoeffMatrix[i * 7 + 6] = db * (dx * dy) / dz;
+                CoeffMatrix[i * 7 + 0] -= db * (dx * dy) / dz;
+            }
+        }
+    }
 
     return 0;
 }
@@ -5097,9 +5660,11 @@ int JI3D_SOR(double *Coeff,
     while (iterCount < opts->MAX_ITER && pctChange > opts->ConvergeCriteria)
     {
         // call kernel
+        if(opts->PB == 0)
+            JI_SOR3D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc, mesh->nElements, mesh->numCellsX, mesh->numCellsY);
+        else
+            ji_sor3d_kernelpb<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc, mesh->nElements, mesh->numCellsX, mesh->numCellsY, mesh->numCellsZ);
 
-        JI_SOR3D_kernel<<<numBlocks, threads_per_block>>>(d_Coeff, d_ConcTemp, d_RHS, d_Conc,
-                                                          mesh->nElements, mesh->numCellsX, mesh->numCellsY);
 
         CHECK_CUDA(cudaGetLastError());
 
@@ -5231,6 +5796,260 @@ int GS2D_OMP(double *Coeff, double *RHS, double *Concentration, options *opts, m
     mesh->iterCount = iterCount;
 
     free(Check);
+    return 0;
+}
+
+
+
+void pGS3D_inner(meshInfo *mesh, double *Coeff, double *RHS, double *x_vec)
+{
+    /*
+        Function pGS3D_inner:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to Coeff matrix
+            - pointer RHS
+            - pointer to x_vec
+        Outputs:
+            - none
+        
+        Function will complete one iteration of the inner loop of
+        the Guass-Seidel iteration.
+    */
+
+    #pragma omp parallel for schedule(auto)
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        double sigma = 0.0;
+
+        for(int j = 1; j < 7; j++)
+        {
+            if (Coeff[i*7 + j] == 0)
+                continue;
+            if (j == 1)
+            {
+                // West
+                sigma += Coeff[i*7 + j] * x_vec[i - 1];
+            }
+            else if(j == 2)
+            {
+                // East
+                sigma += Coeff[i*7 + j] * x_vec[i + 1];
+            }
+            else if(j == 3)
+            {
+                // South
+                sigma += Coeff[i*7 + j] * x_vec[i + mesh->numCellsX];
+            }
+            else if(j == 4)
+            {
+                // North
+                sigma += Coeff[i*7 + j] * x_vec[i - mesh->numCellsX];
+            }
+            else if(j == 5)
+            {
+                // Back
+                sigma += Coeff[i*7 + j] * x_vec[i + mesh->numCellsX * mesh->numCellsY]; 
+            }
+            else if(j == 6)
+            {
+                // Front
+                sigma += Coeff[i*7 + j] * x_vec[i - mesh->numCellsX * mesh->numCellsY];
+            }
+        }
+        // update x
+        x_vec[i] = 1/Coeff[i*7 + 0] * (RHS[i] - sigma);
+    } // end for
+
+    return;
+}
+
+void pGS3D_innerPB(meshInfo *mesh, double *Coeff, double *RHS, double *x_vec)
+{
+    /*
+        Function pGS3D_innerPB:
+        Inputs:
+            - pointer to mesh struct
+            - pointer to Coeff matrix
+            - pointer RHS
+            - pointer to x_vec
+        Outputs:
+            - none
+        
+        Function will complete one iteration of the inner loop of
+        the Guass-Seidel iteration, with periodic boundaries.
+        (periodic in y and z only)
+    */
+
+    // set variables, start parallel CPU code
+
+    int nCols = mesh->numCellsX;
+    int nRows = mesh->numCellsY;
+    int nSlices = mesh->numCellsZ;
+
+    #pragma omp parallel for schedule(auto)
+    for(int i = 0; i < mesh->nElements; i++)
+    {
+        double sigma = 0.0;
+        
+        int mySlice = i/(nRows * nCols);
+        int myRow = (i - mySlice * nRows * nCols)/nCols;
+        int myCol = i - mySlice * nRows * nCols - myRow * nCols;
+        
+        for(int j = 1; j < 7; j++)
+        {
+            if (Coeff[i*7 + j] == 0)
+                continue;
+            if (j == 1)
+            {
+                // West
+                sigma += Coeff[i*7 + j] * x_vec[i - 1];
+            }
+            else if(j == 2)
+            {
+                // East
+                sigma += Coeff[i*7 + j] * x_vec[i + 1];
+            }
+            else if(j == 3)
+            {
+                if(myRow == nRows - 1)
+                {
+                    // periodic south
+                    sigma += Coeff[i*7 + j] * x_vec[mySlice * nRows * nCols + myCol];
+                }
+                else
+                {
+                    // South
+                    sigma += Coeff[i*7 + j] * x_vec[i + nCols];
+                }
+            }
+            else if(j == 4)
+            {
+                if(myRow == 0)
+                {
+                    // Periodic North
+                    sigma += Coeff[i*7 + j] * x_vec[mySlice * nRows * nCols + (nRows - 1) * nCols + myCol];    
+                }
+                else
+                {
+                    // North
+                    sigma += Coeff[i*7 + j] * x_vec[i - nCols];
+                }
+            }
+            else if(j == 5)
+            {
+                if(mySlice == nSlices - 1)
+                {
+                    // periodic Back
+                    sigma += Coeff[i*7 + j] * x_vec[myRow * nCols + myCol];
+                }
+                else
+                {
+                    // Back
+                    sigma += Coeff[i*7 + j] * x_vec[i + nCols * nRows];
+                } 
+            }
+            else if(j == 6)
+            {
+                if(mySlice == 0)
+                {
+                    // Periodic Front
+                    sigma += Coeff[i*7 + j] * x_vec[(nSlices - 1) * nCols * nRows + myRow * nCols + myCol];    
+                }
+                else
+                {
+                    // Front
+                    sigma += Coeff[i*7 + j] * x_vec[i - nCols * nRows];
+                }
+            }
+        }
+        // update x
+        x_vec[i] = 1.0/Coeff[i*7 + 0] * (RHS[i] - sigma);
+    } // end for
+
+    return;
+}
+
+int pGS3D_handle(options *opts, meshInfo *mesh, double *Coeff, double *RHS, double *x_vec)
+{
+    /*
+        Function pGS3D_handle:
+        Inputs:
+            - pointer to options struct
+            - pointer to mesh struct
+            - pointer to Coeff matrix
+            - pointer to RHS matrix
+            - pointer to x_vec
+        Outputs:
+            - none
+        
+        Function is a parallel implementation of the Guass-Seidel iterative solver for a 3D
+        problem where the coefficient matrix has 7 main diagonals. Solves Ax = b for x, where
+        A is Coeff and b is RHS.
+    */
+
+    // set num threads
+    omp_set_num_threads(opts->nThreads);
+
+    // declare useful variables
+    long int nIter = 0;
+    int iterToCheck = 1000;
+    float conv = 1.0;
+
+    // get array for comparison
+    float *oldX = (float *)malloc(mesh->nElements * sizeof(float));
+
+    memcpy(oldX, x_vec, sizeof(float) * mesh->nElements);
+
+    // main loop
+    while(nIter < opts->MAX_ITER && conv > opts->ConvergeCriteria)
+    {
+        // call solver
+        if(opts->PB)
+        {
+            // periodic boundary
+            pGS3D_innerPB(mesh, Coeff, RHS, x_vec);
+        }
+        else
+        {
+            // no flux boundaries
+            pGS3D_inner(mesh, Coeff, RHS, x_vec);
+        }
+    
+        // update iter count
+        nIter++;
+        // check convergence (if applicable)
+
+        if(nIter % iterToCheck == 0 && nIter != 0)
+        {
+            float sum = 0.0;
+            long int count = 0;
+
+            for(long int index = 0; index < mesh->nElements; index++)
+            {
+                if (x_vec[index] == 0)
+                    continue;
+                
+                count++;
+                sum += fabs((x_vec[index] - oldX[index])/x_vec[index]);
+            }
+            
+            conv = sum / count;
+            
+            memcpy(oldX, x_vec, sizeof(float) * mesh->nElements);
+        }
+
+        // update user (if applicable)
+        if(nIter % 1000 == 0 && opts->verbose == 1)
+        {
+            printf("Iteration = %ld, pct Change = %1.3e\n", nIter, conv);
+        }
+    }
+
+    // Memory Management
+
+    free(oldX);
+
     return 0;
 }
 
@@ -5998,7 +6817,8 @@ int Tau3D_Sim(options *opts)
 
     printf("Read img\n");
 
-    readCSV3D(opts, simObject);
+    readCSV3D_noPhase(opts, simObject);
+    // readCSV3D(opts, simObject);
 
     // Declare and define DC in the main flow channel
 
@@ -6017,7 +6837,12 @@ int Tau3D_Sim(options *opts)
     // If any phase is impermeable, need to find all participating media
     printf("Flood Fill\n");
 
-    FloodFill3D_Tau(&mesh, DC, &tInfo);
+    if(opts->PB == 0)
+        FloodFill3D_Tau(&mesh, DC, &tInfo);
+    else if(opts->PB == 1)
+        FloodFill3D_PB(&mesh, DC, &tInfo);
+    else
+        return 1;
 
     // Allocate arrays for holding discretized equations
 
@@ -6047,7 +6872,12 @@ int Tau3D_Sim(options *opts)
 
     printf("Discretize\n");
 
-    Disc3D_Tau(opts, &mesh, DC, CoeffMatrix, RHS);
+    if (opts->PB == 0)
+        Disc3D_Tau(opts, &mesh, DC, CoeffMatrix, RHS);
+    else if(opts->PB == 1)
+        Disc3D_TauPB(opts, &mesh, DC, CoeffMatrix, RHS);
+    else
+        return 1;
 
     printf("Solve\n");
 
@@ -6059,7 +6889,8 @@ int Tau3D_Sim(options *opts)
 
         omp_set_num_threads(opts->nThreads);
 
-        GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+        // GS3D_OMP(CoeffMatrix, RHS, Concentration, opts, &mesh);
+        pGS3D_handle(opts, &mesh, CoeffMatrix, RHS, Concentration);
     }
     else
     {
