@@ -112,8 +112,6 @@ This work used Expanse(GPU) at SDSC through allocations MAT210014 and MAT230071 
 
 ## Upcoming Changes
 
-**I'm back - Andre**.
-
 Changes will be coming to this repository soon. A new branch for development will come out and start implementing some of the features described below, and they will only be committed to this folder once the changes are stable. For now, the folder with the 2D Effective Diffusivity code will remain unchanged.
 
 Recent Added Changes:
@@ -125,6 +123,7 @@ Recent Added Changes:
 6. Transient model (2D + 1D) is currently available, seems to work well.
 7. Initial concentration distributions have been implemented for transient simulation, but not yet for the other methods.
 8. Migration has been added (to 2D + 1D model), lacks documentation and validation at the moment.
+9. Periodic boundaries (and solvers) for 2D and 3D tortuosity.
 
 Upcoming changes (in no particular order):
 - Time discretizations (3D + 1D).
