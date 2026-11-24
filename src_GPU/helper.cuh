@@ -3029,6 +3029,10 @@ int FloodFill3D_PB(meshInfo *mesh, double *DC, tauInfo *tInfo)
         }
     }
 
+    // calculate VF
+
+    tInfo->VF = (double)count / mesh->nElements;
+
     // Find Fluid in both boundaries, add to open list
 
     std::set<coord> cList;
@@ -6813,7 +6817,8 @@ int Tau3D_Sim(options *opts)
 
     printf("Read img\n");
 
-    readCSV3D(opts, simObject);
+    readCSV3D_noPhase(opts, simObject);
+    // readCSV3D(opts, simObject);
 
     // Declare and define DC in the main flow channel
 
